@@ -7,6 +7,11 @@ This program needs:
   - Image Processing Toolbox
   - Statistics and Machine Learning Toolbox
   - Neural Network Toolbox
+
+Data size:
+  Total         514 MB
+    - Program    77 MB
+    - Test data 437 MB
 _____________________________________________________________________________________________
 
 For testing the program, please run the following scripts from top to bottom:
@@ -19,11 +24,11 @@ For testing the program, please run the following scripts from top to bottom:
   - main6.m (simulation of clustered cell loss, 10 min.)
 
 It takes ~30 minutes for running all the scripts on PC with:
-   Windows 10 Home
-   Inter(R) Core i7-6700 CPU @ 3.40GHz
-   16.0GB RAM
+   Windows 10 Home,
+   Inter Core i7-6700 CPU @ 3.40GHz,
+   16.0GB RAM.
 
-Following result files will be saved in "\TestData\Result":
+Following result files will be saved in "..\TestData\Result":
   - "linearizedIm1.tif", "linearizedIm2.tif"     (Linearized images of organ of Corti)
   - "innerHairCells.tif", "outerHairCells.tif"   (Images indicating detected cells)
   - "innerHairCells.xlsx", "outerHairCells.xlsx" (Coordinates of detected cells)
