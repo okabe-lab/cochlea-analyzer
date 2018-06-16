@@ -16,6 +16,7 @@ disp('   - Neural Network Toolbox.')
 disp('Please check version information of your Matlab.')
 disp('>>>'); disp('>>>')
 ver
+disp('>>>'); disp('>>>')
 
 % Unzip test image data
 folderInfo = dir('.\TestData');
@@ -24,9 +25,10 @@ isTiffFile = FindStringPattern(fileNames,'.tif');
 TiffFileNames = fileNames(isTiffFile > 0);
 
 if size(TiffFileNames,1)~=16
+    disp('Unzipping image files...')
     for i = 1:16
-        i
         zipFileName = sprintf('416_0%02d.zip',i);
         unzip(['.\TestData\' zipFileName],'.\TestData')
     end
 end
+disp('main0.m completed!')

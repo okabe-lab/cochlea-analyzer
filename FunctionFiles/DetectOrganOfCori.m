@@ -209,20 +209,19 @@ Isize = size(originalIm);
 im0 = originalIm;
 [point3, C, point3_2] = ReObtainPointGroup2(pointList,originalIm,PIXEL_WIDTH,Z_STEP,0);
 
-[point4,coeff] = urata_newf13(point3);
+[point4,coeff] = ProjectOntoPCA_Twice(point3);
 zcenter = median(point4(:,3));
 fz1 = point4(:,3) > zcenter+20;
 fz2 = point4(:,3) < zcenter-20;
 fz = fz1 + fz2;
 point4(fz>0,:) = [];
 
-[point5,center_g0,~,width] = urata_newf68(point4,0);
+[point5,center_g0,~,width] = CircleFit_NoiseRemoval(point4);
 temp = point5(:,1:2)-repmat(center_g0,size(point5,1),1);
-rad = calc_rad(temp);
+rad = ComputeAngularCoord(temp);
 dist = sqrt(temp(:,1).^2+temp(:,2).^2);
 
 if width > 100 || max(rad)-min(rad) < 0.5 || median(dist) < 300 || median(dist) > 1500
-    [width median(dist)]
     point4_2 = [-point4(:,1) -point4(:,2) point4(:,3)];
     
     r = (360:20:800)';
@@ -230,15 +229,15 @@ if width > 100 || max(rad)-min(rad) < 0.5 || median(dist) < 300 || median(dist) 
     wid = zeros(rsize,1);
     tcent = zeros(rsize,2);
     for i = 1:rsize
-        [wid(i,1),tcent(i,:)] = urata_newf81(point4,r(i,1));
+        [wid(i,1),tcent(i,:)] = SimpleCircleFitEvaluation(point4,r(i,1));
     end
     
     [~,idx] = min(wid);
     temp_center = tcent(idx,:);
     
-    point4_3 =  urata_newf76(point4_2,temp_center,3,20,0);
+    point4_3 =  NoiseRemovalInPolarCoord(point4_2,temp_center,3,20);
     
-    [point5_2,center_g0_2,~,width_2] = urata_newf68(point4_3,0);
+    [point5_2,center_g0_2,~,width_2] = CircleFit_NoiseRemoval(point4_3);
     temp = point5_2(:,1:2)-repmat(center_g0_2,size(point5_2,1),1);
     dist_2 = sqrt(temp(:,1).^2+temp(:,2).^2);
     if width_2 < 100 && median(dist_2) > 300 && median(dist_2) < 1500
@@ -253,7 +252,7 @@ temp = point2_2(:,1:2)-repmat(center_g0,size(point2_2,1),1);
 dist1 = sqrt(temp(:,1).^2+temp(:,2).^2);
 
 temp2 = point5(:,1:2)-repmat(center_g0,size(point5,1),1);
-rad2 = calc_rad(temp2);
+rad2 = ComputeAngularCoord(temp2);
 dist2 = sqrt(temp2(:,1).^2+temp2(:,2).^2);
 
 f1 = dist2 >= min(dist1);
@@ -274,11 +273,11 @@ f = corr>0.6;
 
 point5_3 = point3_2*coeff;
 temp = point5_3(:,1:2)-repmat(center_g0,size(point5_3,1),1);
-rad = calc_rad(temp);
+rad = ComputeAngularCoord(temp);
 dist = sqrt(temp(:,1).^2+temp(:,2).^2);
 
 temp2 = point5(:,1:2)-repmat(center_g0,size(point5,1),1);
-rad_2 = calc_rad(temp2);
+rad_2 = ComputeAngularCoord(temp2);
 dist_2 = sqrt(temp2(:,1).^2+temp2(:,2).^2);
 
 distnum = floor((max(dist_2)-min(dist_2))/10);
@@ -307,7 +306,7 @@ point5(dist_2 > distth,:) = [];
 
 %% Circle Fitting
 temp = point5(:,1:2)-repmat(center_g0,size(point5,1),1);
-rad = calc_rad(temp);
+rad = ComputeAngularCoord(temp);
 dist = sqrt(temp(:,1).^2+temp(:,2).^2);
 number = 6;
 int_rad = min(rad):(max(rad)-min(rad))/number:max(rad);
@@ -327,7 +326,7 @@ temp_dist = sqrt(temp(:,1).^2+temp(:,2).^2);
 mdist0 = mean(temp_dist);
 
 if mdist0 > 1500
-    [rad,coef_g0,center_g0,point5] = urata_newf59(point4);
+    [rad,coef_g0,center_g0,point5] = CircleFitting_Alternative(point4);
 end
 
 %% Get brightness
