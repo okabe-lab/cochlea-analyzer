@@ -10,6 +10,11 @@
 %hair cells.
 %*****************************************************************************
 
+if not(exist('mainPath','var'))
+    mainPath = fileparts(mfilename('fullpath')); % Get fullpath of this script
+end
+cd(mainPath)
+
 %% Information input
 % Specify analysis range by y coordinates of linearized image
 analysis_range = []; % for example [33 4860]

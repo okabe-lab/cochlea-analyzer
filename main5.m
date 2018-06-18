@@ -4,6 +4,11 @@
 %"main4.m". 
 %*****************************************************************************
 
+if not(exist('mainPath','var'))
+    mainPath = fileparts(mfilename('fullpath')); % Get fullpath of this script
+end
+cd(mainPath)
+
 %% Information input
 % Specify cell arrays of paths of ImFolderPathList containing "analyzeResults.mat".
 % For example, {'G:\Cochlear\No1\Result','G:\Cochlear\No2\Result'}

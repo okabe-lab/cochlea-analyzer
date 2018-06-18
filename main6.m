@@ -6,6 +6,11 @@
 %simulated values.
 %*****************************************************************************
 
+if not(exist('mainPath','var'))
+    mainPath = fileparts(mfilename('fullpath')); % Get fullpath of this script
+end
+cd(mainPath)
+
 %% Information input
 %Specify the full path of a folder containing "result2.mat".
 SubFolderPath = '.\TestData\Result';

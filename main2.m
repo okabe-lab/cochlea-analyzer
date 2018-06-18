@@ -8,6 +8,10 @@
 %*****************************************************************************
 
 clearvars -except SubFolderPath
+if not(exist('mainPath','var'))
+    mainPath = fileparts(mfilename('fullpath')); % Get fullpath of this script
+end
+cd(mainPath)
 load([SubFolderPath '\data.mat'],'linearizedIm1','shiftOfIms_pixel','PIXEL_WIDTH','Z_STEP' ...
     ,'centerLineOfCorti','inclineVectors','imFileNames','imSizeList','LINEAR_IM_WIDTH','LINEAR_IM_DEPTH')
 load('machineLearningModels.mat','imdl1s','imdl2');
