@@ -38,7 +38,7 @@ ________________________________________________________________________________
 June 16, 2018
 
 Tadatsune Iida
-Department of Cellular Neurobiology
+Department of Cellular Neurobiology,
 Graduate School of Medicine, The University of Tokyo
 Email: tadiida@m.u-tokyo.ac.jp
 
