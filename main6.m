@@ -12,7 +12,7 @@ end
 cd(mainPath)
 
 %% Information input
-%Specify the full path of a folder containing "result2.mat".
+%Specify the full path of a folder containing "analyzeResults.mat".
 SubFolderPath = '.\TestData\Result';
 
 %% Load measured sizes of clusters of cell loss
@@ -31,7 +31,7 @@ effect = [0 1 2 3 4 6 10 12];
 trialNo = 1000;
 er1_2 = zeros(numel(effect),1);
 for i = 1:numel(effect)
-    i
+    fprintf('Model 1 [%d / %d] ...\n',i,numel(effect))
     [totalcellMat] = SimulateNeighborEffect(Cochleasize, Ratio, effect(i),trialNo);
     Table1 = ComputeSizeDistribution(totalcellMat, Ratio);
     
@@ -67,9 +67,12 @@ xticklabels({'1','2','3','4','5','6','7','8','9','ÅÜ10'})
 powerInd = [0.01 1 3 5 10];
 gaussInd = [1 2 4 6];
 er2_2 = zeros(numel(powerInd),numel(gaussInd));
+count = 0;
+totalCount = numel(powerInd)*numel(gaussInd);
 for i = 1:numel(powerInd)
     for j = 1:numel(gaussInd)
-        [i j]
+        count = count+1;
+        fprintf('Model 2 [%d / %d] ...\n',count,totalCount);
         [totalcellMat] = SimulatePositionalEffect(Cochleasize, Ratio, powerInd(i) ...
             ,gaussInd(j),trialNo);
         Table2 = ComputeSizeDistribution(totalcellMat, Ratio);
@@ -113,9 +116,12 @@ Cochleasize = [3 600];
 effect = [0 2 4 8];
 areaInd = [0 4.5 6 8];
 er4_2 = zeros(numel(effect),numel(areaInd));
+count = 0;
+totalCount = numel(effect)*numel(areaInd);
 for i = 1:numel(effect)
     for j = 1:numel(areaInd)
-        [i j]
+        count = count + 1;
+        fprintf('Model 1+2 [%d / %d] ...\n',count,totalCount);
         [totalcellMat] = SimulateCombinationEffect(Cochleasize, Ratio, effect(i),areaInd(j) ...
             ,trialNo);
         Table4 = ComputeSizeDistribution(permute(totalcellMat,[2 1 3]), Ratio);
@@ -180,3 +186,5 @@ hold off
 xlabel('Positional')
 ylabel('Neighborhood')
 ax.FontSize = 14;
+
+disp('main6.m completed!')

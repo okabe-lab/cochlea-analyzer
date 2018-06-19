@@ -16,7 +16,7 @@ end
 cd(mainPath)
 
 %% Information input
-% Specify analysis range by y coordinates of linearized image
+% Specify analysis range by x (horizontal) coordinates of linearized image
 analysis_range = []; % for example [33 4860]
 omit = []; % for example [3247 3330]
 
