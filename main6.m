@@ -39,7 +39,7 @@ for i = 1:numel(effect)
     T1(10) = sum(T1(10:end));
     T1(11:end)=[];
     T1 = T1/sum(T1);
-    er1_2(i) = sum(abs(T1-T0));
+    er1_2(i) = sqrt(sum((T1 - T0).^2))/sqrt((sum(T1.^2)-min(T1)^2+(1-min(T1))^2));
 end
 
 [~,idx1_2] = min(er1_2);
@@ -51,7 +51,6 @@ T1(11:end)=[];
 T1 = T1/sum(T1);
 
 ef2 = effect(idx1_2);
-err1_2 = min(er1_2)*100;
 
 figure
 bar([T0(1:10) T1(1:10)])
@@ -81,7 +80,7 @@ for i = 1:numel(powerInd)
         T2(10) = sum(T2(10:end));
         T2(11:end)=[];
         T2 = T2/sum(T2);
-        er2_2(i,j) = sum(abs(T2-T0));
+        er2_2(i,j) = sqrt(sum((T2 - T0).^2))/sqrt((sum(T2.^2)-min(T2)^2+(1-min(T2))^2));
     end
 end
 
@@ -97,7 +96,6 @@ T2 = T2/sum(T2);
 
 pow2 = powerInd(i);
 gau2 = gaussInd(j);
-err2_2 = min(er2_2(:))*100;
 
 figure
 bar([T0(1:10) T2(1:10)])
@@ -130,7 +128,7 @@ for i = 1:numel(effect)
         T4(10) = sum(T4(10:end));
         T4(11:end)=[];
         T4 = T4/sum(T4);
-        er4_2(i,j) = sum(abs(T4-T0));
+        er4_2(i,j) = sqrt(sum((T4 - T0).^2))/sqrt((sum(T4.^2)-min(T4)^2+(1-min(T4))^2));
     end
 end
 
@@ -143,10 +141,6 @@ T4 = Table4(:,1).*Table4(:,2);
 T4(10) = sum(T4(10:end));
 T4(11:end)=[];
 T4 = T4/sum(T4);
-
-ef4_2 = effect(i);
-area4_2 = areaInd(j);
-err4_2 = min(er4_2(:))*100;
 
 [~,idx] = sort(er4_2(:));
 temp = -er4_2-(-er4_2(idx(end-3)));
