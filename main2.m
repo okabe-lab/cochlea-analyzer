@@ -1,10 +1,10 @@
 %*****************************************************************************
 %This script is continuation of "main1.m". This script perform detection of
-%inner hair cells on 1st linearized image, create 2nd linearized image 
-%based on inner hair cell row ("linearizedIm2.tif"). It also create an image with
-%estimated inner hair cell locations ("innerHairCells.tif"), and excel file with
-%their coordinates("innerHairCells.xlsx"). This script uses machine learning models
-%("machineLearningModels.mat"), which we will provide on request.  
+%inner hair cells on 1st linearized image, and create 2nd linearized image 
+%based on the detected inner hair cell row ("linearizedIm2.tif"). It also 
+%create an image with estimated inner hair cell locations ("innerHairCells.tif"), 
+%and excel file with their coordinates("innerHairCells.xlsx"). This script uses 
+%machine learning models ("machineLearningModels.mat").  
 %*****************************************************************************
 
 clearvars -except SubFolderPath
@@ -15,192 +15,188 @@ cd(mainPath)
 load([SubFolderPath '\data.mat'],'linearizedIm1','shiftOfIms_pixel','PIXEL_WIDTH','Z_STEP' ...
     ,'centerLineOfCorti','inclineVectors','imFileNames','imSizeList','LINEAR_IM_WIDTH','LINEAR_IM_DEPTH')
 load('machineLearningModels.mat','imdl1s','imdl2');
-Isize = size(linearizedIm1);
+imSize = size(linearizedIm1);
 
 %% Detection of inner hair cells from 1st image
-inline = DetectInnerHairCells(linearizedIm1,imdl1s{1,1},imdl2);
-
-inline3 = inline;
-inline3(:,3) = movmean(inline3(:,3),4);
-if inline3(end,2) < Isize(2)-45
-    inline3 = [inline3; inline3(end,1) Isize(2) inline3(end,3)];
+coordIHCs1 = DetectInnerHairCells(linearizedIm1,imdl1s{1,1},imdl2);
+coordIHCs1(:,3) = movmean(coordIHCs1(:,3),4);
+if coordIHCs1(end,2) < imSize(2)-45
+    coordIHCs1 = [coordIHCs1; coordIHCs1(end,1) imSize(2) coordIHCs1(end,3)];
 end
 disp('Inner hair cells in 1st image detected...')
 
 %% Create 2nd linearized image
-vq = interp1(inline3(:,2),[inline3(:,1) inline3(:,3)],round(min(inline3(:,2)):max(inline3(:,2))) ...
+% Transform line along IHCs of linearized image to spiral in original image
+tempLine = interp1(coordIHCs1(:,2),[coordIHCs1(:,1) coordIHCs1(:,3)],round(min(coordIHCs1(:,2)):max(coordIHCs1(:,2))) ...
     ,'linear','extrap');
-qline = [round(min(inline3(:,2)):max(inline3(:,2)))' vq];
-temp2 = qline - repmat([0,LINEAR_IM_WIDTH+1,LINEAR_IM_DEPTH+1],size(qline,1),1);
-qline2 = centerLineOfCorti(temp2(:,1),:) - inclineVectors(temp2(:,1),:).*temp2(:,2);
-qline2(:,3) = qline2(:,3) + temp2(:,3);
+tempLine = [round(min(coordIHCs1(:,2)):max(coordIHCs1(:,2)))' tempLine];
+tempLine2 = tempLine - repmat([0,LINEAR_IM_WIDTH+1,LINEAR_IM_DEPTH+1],size(tempLine,1),1);
+spiralAlongIHCs = centerLineOfCorti(tempLine2(:,1),:) - inclineVectors(tempLine2(:,1),:).*tempLine2(:,2);
+spiralAlongIHCs(:,3) = spiralAlongIHCs(:,3) + tempLine2(:,3);
 
-acdist = zeros(size(qline2,1),1);
-for j = 2:size(qline2,1)
-    acdist(j) = acdist(j-1) + norm(qline2(j,:) - qline2(j-1,:));
+% Measure distance along spiral
+accumDistance = zeros(size(spiralAlongIHCs,1),1);
+for j = 2:size(spiralAlongIHCs,1)
+    accumDistance(j) = accumDistance(j-1) + norm(spiralAlongIHCs(j,:) - spiralAlongIHCs(j-1,:));
 end
 
+% Obtain points along IHCs' line/spiral with 1 micrometer intervals
 interval = 40;
-xx = (0:interval:acdist(end)-interval)';
-rep_point = zeros(size(xx,1),3);
-rep_point2 = zeros(size(xx,1),3);
-for j = 1:size(xx,1)
-    idx = knnsearch(acdist,xx(j));
-    rep_point(j,:) = qline2(idx,:); 
-    rep_point2(j,:) = qline(idx,:); 
+startPointList = (0:interval:accumDistance(end)-interval)';
+pointsAlongIHCLine = zeros(size(startPointList,1),3);
+for j = 1:size(startPointList,1)
+    idx = knnsearch(accumDistance,startPointList(j));
+    pointsAlongIHCLine(j,:) = tempLine(idx,:); 
 end
-rep_point2 = SwitchColumn1_2(rep_point2);
+pointsAlongIHCLine = SwitchColumn1_2(pointsAlongIHCLine);
+pointsAlongIHCLine2 = pointsAlongIHCLine;
+pointsAlongIHCLine2(:,1) = pointsAlongIHCLine(:,1)+30; %Shift toward center of linearized image
 
-rep_point2_3 = rep_point2;
-rep_point2_3(:,1) = rep_point2(:,1)+30;
-
-w = 40;
+% Adjust Z coordinates of points
+width = 40;
 interval = 6;
-rep_point2_2 = rep_point2;
-for j = 1:size(rep_point2,1)
-    temp = rep_point2(j,:);
-    z = AdjustZCoord(linearizedIm1,temp,w,interval);    
-    rep_point2_3(j,3) = z;    
+for j = 1:size(pointsAlongIHCLine,1)
+    temp = pointsAlongIHCLine(j,:);
+    pointsAlongIHCLine2(j,3) = AdjustZCoord(linearizedIm1,temp,width,interval);       
 end
-rep_point2_3 = (rep_point2+rep_point2_3)/2;
+pointsAlongIHCLine2 = (pointsAlongIHCLine+pointsAlongIHCLine2)/2;
 
-centerline1 = interp1(rep_point2_3(:,2),[rep_point2_3(:,1) rep_point2_3(:,3)],1:size(linearizedIm1,2) ...
+centerLine1 = interp1(pointsAlongIHCLine2(:,2),[pointsAlongIHCLine2(:,1) pointsAlongIHCLine2(:,3)],1:size(linearizedIm1,2) ...
     ,'linear','extrap');
-centerline1 = [(1:size(linearizedIm1,2))' centerline1];
-temp2 = centerline1 - repmat([0,LINEAR_IM_WIDTH+1,LINEAR_IM_DEPTH+1],size(centerline1,1),1);
-centerline2 = centerLineOfCorti(temp2(:,1),:) - inclineVectors(temp2(:,1),:).*temp2(:,2);
-centerline2(:,3) = centerline2(:,3) + temp2(:,3);
+centerLine1 = [(1:size(linearizedIm1,2))' centerLine1];
+tempLine2 = centerLine1 - repmat([0,LINEAR_IM_WIDTH+1,LINEAR_IM_DEPTH+1],size(centerLine1,1),1);
+centerSpiral1 = centerLineOfCorti(tempLine2(:,1),:) - inclineVectors(tempLine2(:,1),:).*tempLine2(:,2);
+centerSpiral1(:,3) = centerSpiral1(:,3) + tempLine2(:,3);
 
-acdist = zeros(size(centerline2,1),1);
-for j = 2:size(centerline2,1)
-    acdist(j) = acdist(j-1) + norm(centerline2(j,:) - centerline2(j-1,:));
+% Measure distance along center spiral
+accumDistance = zeros(size(centerSpiral1,1),1);
+for j = 2:size(centerSpiral1,1)
+    accumDistance(j) = accumDistance(j-1) + norm(centerSpiral1(j,:) - centerSpiral1(j-1,:));
 end
+
+% Obtain points along center line/spiral of Corti in linearized image with 1 micrometer intervals
 interval = 1;
-xx = (0:interval:acdist(end))';
-centerline2_2 = zeros(size(xx,1),3);
-centerline1_2 = zeros(size(xx,1),3);
-for j = 1:size(xx,1)
-    idx = find((acdist-xx(j))>0,1);
-    tempdif = acdist(idx)-xx(j);
+startPointList = (0:interval:accumDistance(end))';
+centerLineOfCorti2 = zeros(size(startPointList,1),3);
+centerLine2 = zeros(size(startPointList,1),3);
+for j = 1:size(startPointList,1)
+    idx = find((accumDistance-startPointList(j))>0,1);
+    tempdif = accumDistance(idx)-startPointList(j);
     if tempdif > 0
-        centerline2_2(j,:) = centerline2(idx,:) + (centerline2(idx-1,:)-centerline2(idx,:))*tempdif;
+        centerLineOfCorti2(j,:) = centerSpiral1(idx,:) + (centerSpiral1(idx-1,:)-centerSpiral1(idx,:))*tempdif;
     else 
-        centerline2_2(j,:) = centerline2(end,:);
+        centerLineOfCorti2(j,:) = centerSpiral1(end,:);
     end
     if tempdif > 0
-        tempvect = (centerline1(idx-1,:)-centerline1(idx,:));
+        tempvect = (centerLine1(idx-1,:)-centerLine1(idx,:));
         tempvect = (tempvect/norm(tempvect))*tempdif;
-        centerline1_2(j,:) = centerline1(idx,:) + tempvect;
+        centerLine2(j,:) = centerLine1(idx,:) + tempvect;
     else 
-        centerline1_2(j,:) = centerline2(end,:);
+        centerLine2(j,:) = centerLine1(end,:);
     end
 end
 
-inline_3 = interp1(rep_point2_2(:,2),[rep_point2_2(:,1) rep_point2_2(:,3)],centerline1_2(:,1) ...
+% Re-obtain points along IHC line/spiral of Corti in linearized image with 1 micrometer intervals
+pointsAlongIHCLine3 = interp1(pointsAlongIHCLine(:,2),[pointsAlongIHCLine(:,1) pointsAlongIHCLine(:,3)],centerLine2(:,1) ...
     ,'linear','extrap');
-inline_3 = [centerline1_2(:,1) inline_3];
-temp = centerline1_2(1,:);
-temp2 = inline_3(1:50,:)-temp;
-temp3 = centerline1_2(1,:)-centerline1_2(50,:);
-if temp3(2)<0
-    [~,idx] = min(abs(dot(repmat(temp3,size(temp2,1),1),temp2,2)));
-    tinline_3 = inline_3(idx:50,:);
+pointsAlongIHCLine3 = [centerLine2(:,1) pointsAlongIHCLine3];
+temp = centerLine2(1,:);
+tempLine2 = pointsAlongIHCLine3(1:50,:)-temp;
+temp3 = centerLine2(1,:)-centerLine2(50,:);
+if temp3(2)<0 % Avoid erroneous detection around apical end
+    [~,idx] = min(abs(dot(repmat(temp3,size(tempLine2,1),1),tempLine2,2)));
+    tinline_3 = pointsAlongIHCLine3(idx:50,:);
     tinline_3 = interp1([1;50],[tinline_3(1,:); tinline_3(end,:)],1:50);
-    inline_3(1:50,:) = tinline_3;
+    pointsAlongIHCLine3(1:50,:) = tinline_3;
 end
+tempLine2 = pointsAlongIHCLine3 - repmat([0,LINEAR_IM_WIDTH+1,LINEAR_IM_DEPTH+1],size(pointsAlongIHCLine3,1),1);
+temp3 = interp1(1:size(centerLineOfCorti,1),centerLineOfCorti,pointsAlongIHCLine3(:,1),'linear','extrap');
+temp4 = interp1(1:size(inclineVectors,1),inclineVectors,pointsAlongIHCLine3(:,1),'linear','extrap');
+spiralAlongIHCs = temp3 - temp4.*tempLine2(:,2);
+spiralAlongIHCs(:,3) = spiralAlongIHCs(:,3) + tempLine2(:,3);
 
-temp2 = inline_3 - repmat([0,LINEAR_IM_WIDTH+1,LINEAR_IM_DEPTH+1],size(inline_3,1),1);
-temp3 = interp1(1:size(centerLineOfCorti,1),centerLineOfCorti,inline_3(:,1),'linear','extrap');
-temp4 = interp1(1:size(inclineVectors,1),inclineVectors,inline_3(:,1),'linear','extrap');
-inline_4 = temp3 - temp4.*temp2(:,2);
-inline_4(:,3) = inline_4(:,3) + temp2(:,3);
-
+% Adjust distances among points on spiral around apical ends
 num = 300;
-acdist = zeros(num,1);
+accumDistance = zeros(num,1);
 for j = 2:num
-    acdist(j) = acdist(j-1) + norm(inline_4(j,:) - inline_4(j-1,:));
+    accumDistance(j) = accumDistance(j-1) + norm(spiralAlongIHCs(j,:) - spiralAlongIHCs(j-1,:));
 end
-interval = acdist(end)/num;
-xx = (0:interval:acdist(end))';
-inline_5 = zeros(num,3);
+interval = accumDistance(end)/num;
+startPointList = (0:interval:accumDistance(end))';
+tempSpiral = zeros(num,3);
 for j = 1:num
-    idx = find((acdist-xx(j))>0,1);
-    tempdif = acdist(idx)-xx(j);
+    idx = find((accumDistance-startPointList(j))>0,1);
+    tempdif = accumDistance(idx)-startPointList(j);
     if tempdif > 0
-        inline_5(j,:) = inline_4(idx,:) + (inline_4(idx-1,:)-inline_4(idx,:))*tempdif;
+        tempSpiral(j,:) = spiralAlongIHCs(idx,:) + (spiralAlongIHCs(idx-1,:)-spiralAlongIHCs(idx,:))*tempdif;
     else 
-        inline_5(j,:) = inline_4(num,:);
+        tempSpiral(j,:) = spiralAlongIHCs(num,:);
     end
 end
-inline_4(1:num,:) = inline_5;
+spiralAlongIHCs(1:num,:) = tempSpiral;
 
 num = 300;
-acdist = zeros(num,1);
+accumDistance = zeros(num,1);
 for j = 2:num
-    acdist(j) = acdist(j-1) + norm(inline_4(num+j,:) - inline_4(num+j-1,:));
+    accumDistance(j) = accumDistance(j-1) + norm(spiralAlongIHCs(num+j,:) - spiralAlongIHCs(num+j-1,:));
 end
-interval = acdist(end)/num;
-xx = (0:interval:acdist(end))';
-inline_5 = zeros(num,3);
+interval = accumDistance(end)/num;
+startPointList = (0:interval:accumDistance(end))';
+tempSpiral = zeros(num,3);
 for j = 1:num
-    idx = find((acdist-xx(j))>0,1);
-    tempdif = acdist(idx)-xx(j);
+    idx = find((accumDistance-startPointList(j))>0,1);
+    tempdif = accumDistance(idx)-startPointList(j);
     if tempdif > 0
-        inline_5(j,:) = inline_4(num+idx,:) + (inline_4(num+idx-1,:)-inline_4(num+idx,:)) ...
+        tempSpiral(j,:) = spiralAlongIHCs(num+idx,:) + (spiralAlongIHCs(num+idx-1,:)-spiralAlongIHCs(num+idx,:)) ...
             *tempdif;
     else 
-        inline_5(j,:) = inline_4(num,:);
+        tempSpiral(j,:) = spiralAlongIHCs(num,:);
     end
 end
-inline_4(num+1:num*2,:) = inline_5;
-centerLineOfCorti2 = centerline2_2;
-inline_2 = inline_4;
+spiralAlongIHCs(num+1:num*2,:) = tempSpiral;
 
-vector2 = inline_2-centerLineOfCorti2;
+% Compute inclinations from two spirals
+vector2 = spiralAlongIHCs-centerLineOfCorti2;
 vector2 = vector2./sqrt(sum(vector2.^2,2));
 inclineVectors2 = movmean(vector2,7);
 
-zres2 = 1;
-compimage = ones(size(centerLineOfCorti2,1),LINEAR_IM_WIDTH*2+1,LINEAR_IM_DEPTH*2+1);
-o_xyz = GetCoordOfPositivePixels(compimage);
-temp = o_xyz - repmat([0,LINEAR_IM_WIDTH+1,LINEAR_IM_DEPTH+1],size(o_xyz,1),1);
-o_xyz2 = centerLineOfCorti2(temp(:,1),:) + inclineVectors2(temp(:,1),:).*temp(:,2);
-o_xyz2(:,3) = o_xyz2(:,3) + temp(:,3)*zres2;
-o_xyz3 = o_xyz2*diag([1/PIXEL_WIDTH,1/PIXEL_WIDTH,1/Z_STEP]);
+%% Create linearized image based on center spiral line along organ of Corti and inclinations
+Z_STEP2 = 1;
+linearizedIm2 = ones(size(centerLineOfCorti2,1),LINEAR_IM_WIDTH*2+1,LINEAR_IM_DEPTH*2+1);
+xyzLinear = GetCoordOfPositivePixels(linearizedIm2);
+xyzOrigin = ConvertLinearToOriginal(xyzLinear, centerLineOfCorti2, inclineVectors2 ...
+    , LINEAR_IM_WIDTH, LINEAR_IM_DEPTH);
+xyzOrigin_pixel = xyzOrigin*diag([1/PIXEL_WIDTH,1/PIXEL_WIDTH,1/Z_STEP]); % Convert to pixel positions
 
-imf = zeros(size(o_xyz2,1),size(imFileNames,1));
-acf = zeros(size(o_xyz2,1),1);
-for j = 1:size(imFileNames,1)
-    f1 = (o_xyz3(:,1)-shiftOfIms_pixel(j,1) >= 1).*(o_xyz3(:,1)-shiftOfIms_pixel(j,1) <= imSizeList(j,1));
-    f2 = (o_xyz3(:,2)-shiftOfIms_pixel(j,2) >= 1).*(o_xyz3(:,2)-shiftOfIms_pixel(j,2) <= imSizeList(j,2));
-    f3 = (o_xyz3(:,3)-shiftOfIms_pixel(j,3) >= 1).*(o_xyz3(:,3)-shiftOfIms_pixel(j,3) <= imSizeList(j,3));
-    f00 = f1.*f2.*f3;
-    imf(:,j) = (f00 - acf)>0;
-    acf = (acf + f00)>0;
+belongImList = zeros(size(xyzOrigin,1),size(imFileNames,1));
+for i = 1:size(imFileNames,1)
+    % Compensate shift from the first image stack
+    xyzShifted = xyzOrigin_pixel - repmat(shiftOfIms_pixel(i,:),[size(xyzOrigin_pixel,1) 1]);
+    isWithinIm = IsWithinIm(xyzShifted, imSizeList(i,:));
+    belongImList(:,i) = (isWithinIm - sum(belongImList,2))>0; % Removing duplications
 end
 
-compimage = zeros(size(centerLineOfCorti2,1),LINEAR_IM_WIDTH*2+1,LINEAR_IM_DEPTH*2+1);
+linearizedIm2 = zeros(size(centerLineOfCorti2,1),LINEAR_IM_WIDTH*2+1,LINEAR_IM_DEPTH*2+1);
 for j = 1:size(imFileNames,1)
+    fprintf('Making 2nd linearized image [%d / %d] ...\n',j,numel(imFileNames))
     load([SubFolderPath '\' TrimTif(imFileNames{j,1}) '.mat'],'-mat','processedIm');
-    compimage = DrawLinearizedIm(compimage,processedIm,o_xyz,o_xyz3,imf(:,j),imSizeList(j,:) ...
+    linearizedIm2 = DrawLinearizedIm(linearizedIm2,processedIm,xyzLinear,xyzOrigin_pixel,belongImList(:,j),imSizeList(j,:) ...
         ,shiftOfIms_pixel(j,:));
 end
-linearizedIm2 = flipud(permute(uint16(compimage),[2 1 3]));
+linearizedIm2 = flipud(permute(uint16(linearizedIm2),[2 1 3]));
 
 ImWrite3D(linearizedIm2,[SubFolderPath '\linearizedIm2.tif']);
 disp('Re_linearization completed...')
 
 %% Detection of inner hair cells in 2nd image
-inline = DetectInnerHairCells(linearizedIm2,imdl1s{1,1},imdl2);
-
-innerCells2 = inline;
+innerCells2 = DetectInnerHairCells(linearizedIm2,imdl1s{1,1},imdl2);
 innerCells2(:,3) = movmean(innerCells2(:,3),4);
 
-incim = DrawMarkedIm(linearizedIm2,round(innerCells2),2,1);
-incim = uint16(incim*1000);
+markedImOfIHC = DrawMarkedIm(linearizedIm2,round(innerCells2),2,1);
+markedImOfIHC = uint16(markedImOfIHC*1000);
 disp('Inner hair cells in 2nd image detected!')
 
 %% Save and export data
 save([SubFolderPath '\data.mat'],'linearizedIm2','centerLineOfCorti2','inclineVectors2','innerCells2','-append')
 xlswrite([SubFolderPath '\innerHairCells.xlsx'],sortrows(SwitchColumn1_2(round(innerCells2))),1)
-ImWrite3D(incim,[SubFolderPath '\innerHairCells.tif']);
+ImWrite3D(markedImOfIHC,[SubFolderPath '\innerHairCells.tif']);

@@ -9,9 +9,9 @@ This program needs:
   - Neural Network Toolbox
 
 Data size:
-  Total         514 MB
+  Total         539 MB
     - Program    77 MB
-    - Test data 437 MB
+    - Test data 462 MB
 _____________________________________________________________________________________________
 
 For testing the program, please run the following scripts from top to bottom:
@@ -35,10 +35,15 @@ Following result files will be saved in "..\TestData\Result":
   - "standardized_OuterHairCells.tif"            (Standardized image of cellular distribution) 
 _____________________________________________________________________________________________
 
-June 16, 2018
+June 22, 2018
 
 Tadatsune Iida
 Department of Cellular Neurobiology,
-Graduate School of Medicine, The University of Tokyo
+Graduate School of Medicine, University of Tokyo
 Email: tadiida@m.u-tokyo.ac.jp
+
+Shigeo Okabe
+Department of Cellular Neurobiology,
+Graduate School of Medicine, University of Tokyo
+Email: okabe@m.u-tokyo.ac.jp
 

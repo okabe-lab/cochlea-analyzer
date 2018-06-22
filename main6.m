@@ -1,9 +1,8 @@
 %*****************************************************************************
 %This script simulate cell loss of organ of corti with "Neighborhood
-%neighborEffect" and "Positional neighborEffect". The script uses MAT-File 
-%"analyzeResults.mat", which is created by "main4.m". The script will show 
-%three histograms of cluster size and an image indicating similarity between 
-%measured and simulated values.
+%Effect" and "Positional Effect". The script uses MAT-File "analyzeResults.mat", 
+%which is created by "main4.m". The script will show three histograms of cluster 
+%size and an image indicating similarity between measured and simulated values.
 %*****************************************************************************
 
 if not(exist('mainPath','var'))
@@ -16,8 +15,8 @@ cd(mainPath)
 SubFolderPath = '.\TestData\Result';
 
 %% Load measured sizes of clusters of cell loss
-load([SubFolderPath '\analyzeResults.mat'],'Ratio2','enum2')
-Table0 = tabulate(enum2);
+load([SubFolderPath '\analyzeResults.mat'],'totalLossRatio','lossClusterSizes')
+Table0 = tabulate(lossClusterSizes);
 originalHistogram = Table0(:,1).*Table0(:,2);
 originalHistogram(10) = sum(originalHistogram(10:end));
 originalHistogram(11:end)=[];
@@ -31,8 +30,8 @@ errorScores1 = zeros(numel(neighborEffect),1);
 % Search value of neighbor effect with minimum error
 for i = 1:numel(neighborEffect)
     fprintf('Model 1 [%d / %d] ...\n',i,numel(neighborEffect))
-    [totalcellMat] = SimulateNeighborEffect(Cochleasize, Ratio2, neighborEffect(i),trialNo);
-    Table1 = ComputeSizeDistribution(totalcellMat, Ratio2);
+    [totalcellMat] = SimulateNeighborEffect(Cochleasize, totalLossRatio, neighborEffect(i),trialNo);
+    Table1 = ComputeSizeDistribution(totalcellMat, totalLossRatio);
     
     model1Histogram = Table1(:,1).*Table1(:,2);
     model1Histogram(10) = sum(model1Histogram(10:end));
@@ -44,8 +43,8 @@ for i = 1:numel(neighborEffect)
 end
 
 [~,minErrorIdx1] = min(errorScores1); % Recalculation for making graph
-[totalcellMat] = SimulateNeighborEffect(Cochleasize, Ratio2, neighborEffect(minErrorIdx1),trialNo);
-Table1 = ComputeSizeDistribution(totalcellMat, Ratio2);
+[totalcellMat] = SimulateNeighborEffect(Cochleasize, totalLossRatio, neighborEffect(minErrorIdx1),trialNo);
+Table1 = ComputeSizeDistribution(totalcellMat, totalLossRatio);
 model1Histogram = Table1(:,1).*Table1(:,2);
 model1Histogram(10) = sum(model1Histogram(10:end));
 model1Histogram(11:end)=[];
@@ -58,7 +57,7 @@ ax.FontSize = 14;
 legend({'Measured','Simulation 1'})
 xlabel('Number in cluster')
 ylabel('Probability')
-title(sprintf('Ratio= %.3f, Neighbor= %d, ErrScore= %.1f',Ratio2,neighborEffect(minErrorIdx1),min(errorScores1(:))))
+title(sprintf('Ratio= %.3f, Neighbor= %d, ErrScore= %.2f',totalLossRatio,neighborEffect(minErrorIdx1),min(errorScores1(:))))
 xticklabels({'1','2','3','4','5','6','7','8','9','ÅÜ10'})
 
 %% Simulation 2, "Positional neighborEffect" only
@@ -71,9 +70,9 @@ for i = 1:numel(powerInd)
     for j = 1:numel(gaussInd)
         count = count+1;
         fprintf('Model 2 [%d / %d] ...\n',count,totalCount);
-        [totalcellMat] = SimulatePositionalEffect(Cochleasize, Ratio2, powerInd(i) ...
+        [totalcellMat] = SimulatePositionalEffect(Cochleasize, totalLossRatio, powerInd(i) ...
             ,gaussInd(j),trialNo);
-        Table2 = ComputeSizeDistribution(totalcellMat, Ratio2);
+        Table2 = ComputeSizeDistribution(totalcellMat, totalLossRatio);
         
         model2Histogram = Table2(:,1).*Table2(:,2);
         model2Histogram(10) = sum(model2Histogram(10:end));
@@ -87,8 +86,8 @@ end
 
 [~,minErrorIdx2] = min(errorScores2(:));
 [i,j] = ind2sub(size(errorScores2),minErrorIdx2);
-[totalcellMat] = SimulatePositionalEffect(Cochleasize, Ratio2, powerInd(i),gaussInd(j),trialNo);
-Table2 = ComputeSizeDistribution(totalcellMat, Ratio2);
+[totalcellMat] = SimulatePositionalEffect(Cochleasize, totalLossRatio, powerInd(i),gaussInd(j),trialNo);
+Table2 = ComputeSizeDistribution(totalcellMat, totalLossRatio);
 
 model2Histogram = Table2(:,1).*Table2(:,2);
 model2Histogram(10) = sum(model2Histogram(10:end));
@@ -102,7 +101,7 @@ ax.FontSize = 14;
 legend({'Measured','Simulation 2'})
 xlabel('Number in cluster')
 ylabel('Probability')
-title(sprintf('Ratio= %.3f, Power= %.3f, Gauss= %d, ErrScore= %.1f',Ratio2,powerInd(i) ...
+title(sprintf('Ratio= %.3f, Power= %.3f, Gauss= %d, ErrScore= %.2f',totalLossRatio,powerInd(i) ...
     ,gaussInd(j),min(errorScores2(:))))
 xticklabels({'1','2','3','4','5','6','7','8','9','ÅÜ10'})
 
@@ -118,9 +117,9 @@ for i = 1:numel(neighborEffect)
     for j = 1:numel(positionEffect)
         count = count + 1;
         fprintf('Model 1+2 [%d / %d] ...\n',count,totalCount);
-        [totalcellMat] = SimulateCombinationEffect(Cochleasize, Ratio2, neighborEffect(i),positionEffect(j) ...
+        [totalcellMat] = SimulateCombinationEffect(Cochleasize, totalLossRatio, neighborEffect(i),positionEffect(j) ...
             ,trialNo);
-        Table4 = ComputeSizeDistribution(permute(totalcellMat,[2 1 3]), Ratio2);
+        Table4 = ComputeSizeDistribution(permute(totalcellMat,[2 1 3]), totalLossRatio);
         
         model3Histogram = Table4(:,1).*Table4(:,2);
         model3Histogram(10) = sum(model3Histogram(10:end));
@@ -134,8 +133,8 @@ end
 
 [~,minErrorIdx3] = min(errorScores3(:));
 [i,j] = ind2sub(size(errorScores3),minErrorIdx3);
-[totalcellMat] = SimulateCombinationEffect(Cochleasize, Ratio2, neighborEffect(i), positionEffect(j),trialNo);
-Table4 = ComputeSizeDistribution(totalcellMat, Ratio2);
+[totalcellMat] = SimulateCombinationEffect(Cochleasize, totalLossRatio, neighborEffect(i), positionEffect(j),trialNo);
+Table4 = ComputeSizeDistribution(totalcellMat, totalLossRatio);
 
 model3Histogram = Table4(:,1).*Table4(:,2);
 model3Histogram(10) = sum(model3Histogram(10:end));
@@ -162,7 +161,7 @@ ax.FontSize = 14;
 legend({'Measured','Simulation 3'})
 xlabel('Number in cluster')
 ylabel('Probability')
-title(sprintf('Ratio= %.3f, Neighbor = %d, Area = %d, ErrScore= %.1f',Ratio2,neighborEffect(i) ...
+title(sprintf('Ratio= %.3f, Neighbor = %d, Area = %d, ErrScore= %.2f',totalLossRatio,neighborEffect(i) ...
     ,positionEffect(j),min(errorScores3(:))))
 xticklabels({'1','2','3','4','5','6','7','8','9','ÅÜ10'})
 

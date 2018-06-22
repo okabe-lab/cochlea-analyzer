@@ -3,7 +3,7 @@
 %outer hair cells on 2nd linearized image. It creat an image with estimated
 %outer hair cell locations ("outerHairCells.tif"), excel files with estimated
 %locations of inner and outer hair cells ("outerHairCells.xlsx"). This script uses 
-%machine learning models ("machineLearningModels.mat"), which we will provide on request.
+%machine learning models ("machineLearningModels.mat").
 %*****************************************************************************
 
 clearvars -except SubFolderPath

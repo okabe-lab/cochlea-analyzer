@@ -1,6 +1,6 @@
 %*****************************************************************************
 %This script make heatmap image indicating degrees of cell loss. The script
-%uses multiple MAT-file "result2.mat", which are created by the script 
+%uses multiple MAT-file "analyzeResults.mat", which are created by the script 
 %"main4.m". 
 %*****************************************************************************
 
@@ -19,9 +19,9 @@ void_values50s = cell(numel(ImFolderPathList),1);
 ratios = zeros(numel(ImFolderPathList),1);
 
 for j = 1:numel(ImFolderPathList)
-    load([ImFolderPathList{j} '\analyzeResults.mat'],'void50','Ratio2');
-    void_values50s{j} = void50;
-    ratios(j,1) = Ratio2;
+    load([ImFolderPathList{j} '\analyzeResults.mat'],'lostCellNoList50','totalLossRatio');
+    void_values50s{j} = lostCellNoList50;
+    ratios(j,1) = totalLossRatio;
 end
 
 void_values1 = cat(2,void_values50s{:});
