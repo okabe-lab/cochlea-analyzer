@@ -15,205 +15,213 @@ load([SubFolderPath '\data.mat'],'linearizedIm2','innerCells2')
 load('machineLearningModels.mat','omdl1s','omdl2','net1','net2');
 
 %% First selection of candidate locations of outer hair cells
-Mdl = omdl1s{1,1};
-[params1,pred,score1,S, L, outC] = PredictOuterHairCells(linearizedIm2,innerCells2,Mdl);
+Mdl = omdl1s{1,1}; % Remove noise
+[predictor1,~,predictionScores1,S, L, outC] = PredictOuterHairCells(linearizedIm2,innerCells2,Mdl);
 disp('Cell candidates obtained...')
 
-Isize = size(linearizedIm2);
+imSize = size(linearizedIm2);
 width = 200;
-num1 = round(Isize(2)/width);
+num1 = round(imSize(2)/width);
 num2 = round(width/2);
-stlist = [0:floor(Isize(2)/num1):floor(Isize(2)/num1)*(num1-1) Isize(2)];
-idxcell = cell(num1,1);
+startPointList = [0:floor(imSize(2)/num1):floor(imSize(2)/num1)*(num1-1) imSize(2)];
+idxCell = cell(num1,1);
 for j = 1:num1
-    f = (params1(:,6) >= stlist(j)).*(params1(:,6) < stlist(j+1));
-    tempscore = score1(:,2).*f;
-    [~,tempidx] = sort(tempscore,'descend');
-    idxcell{j,1} = tempidx(1:num2,:);
+    f = (predictor1(:,6) >= startPointList(j)).*(predictor1(:,6) < startPointList(j+1));
+    tempScore = predictionScores1(:,2).*f;
+    [~,tempIdx] = sort(tempScore,'descend');
+    idxCell{j,1} = tempIdx(1:num2,:);
 end
-idxlist = cat(1,idxcell{:});
+selectedIndexList = cat(1,idxCell{:});
 
 %% Additional feature quantity extraction
-params2 = params1(idxlist,:);
-score2 = score1(idxlist,2);
+subPredict1 = predictor1(selectedIndexList,:);
+selectedPredScore1 = predictionScores1(selectedIndexList,2);
 
-xyzlist1 = params2(:,5:7);
-xyzlist2 = params2(:,8:10);
-xyzlist3 = params2(:,11:13);
-[dist,X,Y,Z] = ComputeMinDistBtwnClusters(xyzlist1,xyzlist2,xyzlist3);
+% Search neighbor "cell candidates"
+xyzList1 = subPredict1(:,5:7);
+selectedPixelList = subPredict1(:,8:10);
+xyzList3 = subPredict1(:,11:13);
+[distanceList,xDistList,yDistList,zDistList] = ComputeMinDistBtwnClusters(xyzList1,selectedPixelList,xyzList3);
 
-param5 = zeros(size(params2,1),24);
-paramidx = zeros(size(params2,1),7);
-
-f0 = (dist > 4).*(dist <16);
-for j = 1:size(params2,1)
-    tempf = find(f0(:,j));
-    tvect = [X(tempf,j), Y(tempf,j), Z(tempf,j)];
-    normal = sqrt(sum(tvect.^2,2));
-    nvect = tvect./normal;
-    rad = acos(nvect(:,1));
-    f = nvect(:,2)<0;
-    rad(f>0) = 2*pi - rad(f>0);
-    tempscore = score2(tempf);
+% Add neighbors data
+subPredict2 = zeros(size(subPredict1,1),24);
+neighborIndex = zeros(size(subPredict1,1),7);
+isNeighbor = (distanceList > 4).*(distanceList <16);
+for j = 1:size(subPredict1,1)
+    tempNeighbor = find(isNeighbor(:,j));
+    tempVectorList = [xDistList(tempNeighbor,j), yDistList(tempNeighbor,j), zDistList(tempNeighbor,j)];
+    normal = sqrt(sum(tempVectorList.^2,2));
+    normalizedVectList = tempVectorList./normal;
+    angleList = acos(normalizedVectList(:,1));
+    f = normalizedVectList(:,2)<0;
+    angleList(f>0) = 2*pi - angleList(f>0);
+    tempScore = selectedPredScore1(tempNeighbor);
     
     for k = 1:6
-        f1 = rad >= (k-1)*(pi/3);
-        f2 = rad < k*(pi/3);
-        [M,idx] = max(tempscore.*f1.*f2);
-        if M >0
-            param5(j,(k-1)*4+1:k*4)=[tvect(idx,:),tempscore(idx)];
-            paramidx(j,k) = tempf(idx);
+        f1 = angleList >= (k-1)*(pi/3);
+        f2 = angleList < k*(pi/3);
+        [maxValue,idx] = max(tempScore.*f1.*f2);
+        if maxValue >0
+            subPredict2(j,(k-1)*4+1:k*4)=[tempVectorList(idx,:),tempScore(idx)];
+            neighborIndex(j,k) = tempNeighbor(idx);
         end
     end
 end
-[sortedD,I] = sort(dist,2);
-IDX = I(:,2);
-D = sortedD(:,2);
-num = size(dist,1);
-tempidx = sub2ind([num num],(1:num)',IDX);
-vect = [X(tempidx) Y(tempidx), Z(tempidx)];
-param6 = [vect score2(IDX) D];
-paramidx(:,7) = IDX;
+[sortedDistance,I] = sort(distanceList,2);
+neighborIndex2 = I(:,2);
+distanceList2 = sortedDistance(:,2);
+num = size(distanceList,1);
+tempIdx = sub2ind([num num],(1:num)',neighborIndex2);
+vectorList = [xDistList(tempIdx) yDistList(tempIdx), zDistList(tempIdx)];
+subPredict3 = [vectorList selectedPredScore1(neighborIndex2) distanceList2];
+neighborIndex(:,7) = neighborIndex2;
 
-tcompim = padarray(linearizedIm2,[100 100 5]);
-param7 = zeros(size(params2,1),21*7);
-for j = 1:size(params2,1)
-    temp = round(params2(j,5:7));
+% Add image around each cell candidate
+expandedIm = padarray(linearizedIm2,[100 100 5]);
+subPredict4 = zeros(size(subPredict1,1),21*7);
+for j = 1:size(subPredict1,1)
+    temp = round(subPredict1(j,5:7));
     stx = temp(1)-28+100; edx = stx+63-1;
     sty = temp(2)-10+100; edy = sty+21-1;
     stz = temp(3)-1+5; edz = stz+3-1;
-    tempim = histeq(max(tcompim(stx:edx,sty:edy,stz:edz),[],3));
-    tempim = imresize(tempim,[21,7]);
-    tempim = double(tempim);
-    param7(j,:) = tempim(:)/prctile(tempim(:),90);
+    tempIm = histeq(max(expandedIm(stx:edx,sty:edy,stz:edz),[],3));
+    tempIm = imresize(tempIm,[21,7]);
+    tempIm = double(tempIm);
+    subPredict4(j,:) = tempIm(:)/prctile(tempIm(:),90);
 end
 
-params2_2 = [params2 param5 param6 param7];
+predictor2 = [subPredict1 subPredict2 subPredict3 subPredict4];
 
-xyzlist = params2_2(:,5:7);
-for j = 1:size(idxlist)
-    temp = SwitchColumn1_2(S(idxlist(j)).PixelList);
-    [idx,~] = knnsearch(temp,xyzlist(j,:));
-    xyzlist(j,:) = temp(idx,:);
+% Obtain coordinates of cell candidates
+cellCandidCoord = predictor2(:,5:7);
+for j = 1:size(selectedIndexList)
+    temp = SwitchColumn1_2(S(selectedIndexList(j)).PixelList);
+    [idx,~] = knnsearch(temp,cellCandidCoord(j,:)); % Search nearest pixel
+    cellCandidCoord(j,:) = temp(idx,:);
 end
 
-tcompim = padarray(linearizedIm2,[100 100 5]);
+% Image data for "net1"
 wx = 69; wy = 39; wz = 3;
-iparams = zeros(69,39,1,size(xyzlist,1));
-for j = 1:size(xyzlist,1)
-    temp = round(xyzlist(j,:));
+predictorImList = zeros(69,39,1,size(cellCandidCoord,1));
+for j = 1:size(cellCandidCoord,1)
+    temp = round(cellCandidCoord(j,:));
     stx = temp(1)-floor(wx/2)+100; edx = stx+wx-1;
     sty = temp(2)-floor(wy/2)+100; edy = sty+wy-1;
     stz = temp(3)-floor(wz/2)+5; edz = stz+wz-1;
-    tempim = double(max(tcompim(stx:edx,sty:edy,stz:edz),[],3));
-    tempim = histeq(tempim/max(tempim(:)));
-    iparams(:,:,:,j) = tempim;
+    tempIm = double(max(expandedIm(stx:edx,sty:edy,stz:edz),[],3));
+    tempIm = histeq(tempIm/max(tempIm(:)));
+    predictorImList(:,:,:,j) = tempIm;
 end
 
 %% Second selection of candidate locations of inner hair cells
 Mdl = omdl2;
-[pred1,scores2] = predict(Mdl,params2_2);
-pred2 = double(classify(net1,iparams));     
-xyzlist2 = SwitchColumn1_2(cat(1,S(idxlist).PixelList));
-Isize = size(linearizedIm2);
-pred2(pred1==-1)=-1;
-datalist = [idxlist pred2 xyzlist scores2(:,2)];
+[binaryPredictions1,predictionScores2] = predict(Mdl,predictor2);
+rowPredictions = double(classify(net1,predictorImList));     
+selectedPixelList = SwitchColumn1_2(cat(1,S(selectedIndexList).PixelList));
+imSize = size(linearizedIm2);
+rowPredictions(binaryPredictions1==-1)=-1;
+cellCandidData = [selectedIndexList rowPredictions cellCandidCoord predictionScores2(:,2)];
 
-leftend = round(min(innerCells2(:,2)));
-f1 = datalist(:,4) < (leftend+200);
-f2 = pred1 == 1;
-leftadd = datalist(f1.*f2>0,:);
+leftEnd = round(min(innerCells2(:,2)));
+f1 = cellCandidData(:,4) < (leftEnd+200);
+f2 = binaryPredictions1 == 1;
+apicalCandidates = cellCandidData(f1.*f2>0,:);
 
 %% Detect rows of outer hair cells
 disp('Estimating outer hair cells...')
-for j = 1:size(datalist,1)
-    tempdata = datalist(j,:);
-    if tempdata(2) ~=-1
-        if tempdata(4) > Isize(2)-10 || tempdata(5) < 6 || tempdata(5) > Isize(1)-6
-            datalist(j,2) = -1;
+% Remove candidates near boundaries
+for j = 1:size(cellCandidData,1)
+    tempData = cellCandidData(j,:);
+    if tempData(2) ~=-1
+        if tempData(4) > imSize(2)-10 || tempData(5) < 6 || tempData(5) > imSize(1)-6
+            cellCandidData(j,2) = -1;
         else
-            tempxyz = round(tempdata(3:5));
-            if tempxyz(1)+5>Isize(1)
-                datalist(j,2) = -1;
-            else
-                
-                tempint1 = linearizedIm2(tempxyz(1),tempxyz(2)+10,tempxyz(3));
-                tempint2 = linearizedIm2(tempxyz(1)-5,tempxyz(2),tempxyz(3));
-                tempint3 = linearizedIm2(tempxyz(1)+5,tempxyz(2),tempxyz(3));
-            if tempint1 == 0 || tempint2 == 0 || tempint3 == 0
-                datalist(j,2) = -1;
+            tempCoord = round(tempData(3:5));
+            if tempCoord(1)+5>imSize(1)
+                cellCandidData(j,2) = -1;
+            else              
+                pixelValue1 = linearizedIm2(tempCoord(1),tempCoord(2)+10,tempCoord(3));
+                pixelValue2 = linearizedIm2(tempCoord(1)-5,tempCoord(2),tempCoord(3));
+                pixelValue3 = linearizedIm2(tempCoord(1)+5,tempCoord(2),tempCoord(3));
+            if pixelValue1 == 0 || pixelValue2 == 0 || pixelValue3 == 0
+                cellCandidData(j,2) = -1;
             end
             end
         end
     end
 end
 
-for ii = 1:3
-    out1 = sortrows(datalist(datalist(:,2)==1,3:5),2);
-    out2 = sortrows(datalist(datalist(:,2)==2,3:5),2);
-    out3 = sortrows(datalist(datalist(:,2)==3,3:5),2);
-    outs = {out1;out2;out3};
-    dif_1 = diff(out1);
-    dif_2 = diff(out2);
-    dif_3 = diff(out3);
-    difs = {dif_1;dif_2;dif_3};
-    xyzlist = datalist(:,3:5);
+% Remove too close candidate pairs
+for rowNo = 1:3
+    row1List = sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2);
+    row2List = sortrows(cellCandidData(cellCandidData(:,2)==2,3:5),2);
+    row3List = sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2);
+    allRowList = {row1List;row2List;row3List};
+    row1Intervals = diff(row1List);
+    row2Intervals = diff(row2List);
+    row3Intervals = diff(row3List);
+    allRowIntervals = {row1Intervals;row2Intervals;row3Intervals};
     
-    for j = 1:size(difs{ii,1})
-        if difs{ii,1}(j,2) < 5
-            xyz1 = outs{ii,1}(j,:);
-            xyz2 = outs{ii,1}(j+1,:);
-            f1 = (xyzlist(:,1) == xyz1(1)) .* (xyzlist(:,2) == xyz1(2)) .* (xyzlist(:,3) == xyz1(3));
-            f2 = (xyzlist(:,1) == xyz2(1)) .* (xyzlist(:,2) == xyz2(2)) .* (xyzlist(:,3) == xyz2(3));
+    for j = 1:size(allRowIntervals{rowNo,1})
+        if allRowIntervals{rowNo,1}(j,2) < 5
+            xyz1 = allRowList{rowNo,1}(j,:);
+            xyz2 = allRowList{rowNo,1}(j+1,:);
+            f1 = (cellCandidCoord(:,1) == xyz1(1)) .* (cellCandidCoord(:,2) == xyz1(2)) .* (cellCandidCoord(:,3) == xyz1(3));
+            f2 = (cellCandidCoord(:,1) == xyz2(1)) .* (cellCandidCoord(:,2) == xyz2(2)) .* (cellCandidCoord(:,3) == xyz2(3));
             if abs(xyz1(1)-xyz2(1))<4
-                datalist(f1>0,2) = -1;
-                datalist(f2>0,2) = -1;
+                cellCandidData(f1>0,2) = -1;
+                cellCandidData(f2>0,2) = -1;
             else
-                datalist(f1>0,2) = 4;
-                datalist(f2>0,2) = 4;
+                cellCandidData(f1>0,2) = 4;
+                cellCandidData(f2>0,2) = 4;
             end
         end
     end
 end
 
-f1 = datalist(:,2)==-1;
-f2 = datalist(:,6)>0.8;
-datalist(f1.*f2>0,2) = 4;
+% Recover removed candidates with high prediction scores
+f1 = cellCandidData(:,2)==-1;
+f2 = cellCandidData(:,6)>0.8;
+cellCandidData(f1.*f2>0,2) = 4;
 
-for ii = 1:3
-    out1 = sortrows(datalist(datalist(:,2)==1,3:5),2);
-    out2 = sortrows(datalist(datalist(:,2)==2,3:5),2);
-    out3 = sortrows(datalist(datalist(:,2)==3,3:5),2);
-    outs = {out1;out2;out3};
-    dif_1 = diff(out1);
-    dif_2 = diff(out2);
-    dif_3 = diff(out3);
-    difs = {dif_1;dif_2;dif_3};
-    xyzlist = datalist(:,3:5);
-    f0 = datalist(:,2) ~= -1;
+% Recover removed candidates in gap space
+for rowNo = 1:3
+    row1List = sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2);
+    row2List = sortrows(cellCandidData(cellCandidData(:,2)==2,3:5),2);
+    row3List = sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2);
+    allRowList = {row1List;row2List;row3List};
+    row1Intervals = diff(row1List);
+    row2Intervals = diff(row2List);
+    row3Intervals = diff(row3List);
+    allRowIntervals = {row1Intervals;row2Intervals;row3Intervals};
+    cellCandidCoord = cellCandidData(:,3:5);
+    isRemovedList = cellCandidData(:,2) ~= -1;
     
-    for j = 1:size(difs{ii,1})
-        if difs{ii,1}(j,2) > 12 && difs{ii,1}(j,2) < 50
-            xyz1 = outs{ii,1}(j,:);
-            xyz2 = outs{ii,1}(j+1,:);
-            xyz3 = interp1([xyz1(2);xyz2(2)],[xyz1;xyz2],ceil(xyz1(2)+4):floor(xyz2(2)-4));
+    for j = 1:size(allRowIntervals{rowNo,1})
+        if allRowIntervals{rowNo,1}(j,2) > 12 && allRowIntervals{rowNo,1}(j,2) < 50
+            xyz1 = allRowList{rowNo,1}(j,:);
+            xyz2 = allRowList{rowNo,1}(j+1,:);
+            gapCoords = interp1([xyz1(2);xyz2(2)],[xyz1;xyz2],ceil(xyz1(2)+4):floor(xyz2(2)-4));
             
-            f1 = (xyzlist(:,2) > outs{ii,1}(j,2)).*(xyzlist(:,2) < outs{ii,1}(j+1,2));
-            f2 = (xyzlist(:,1) > (min(outs{ii,1}(j,1),outs{ii,1}(j+1,1))-8)) ...
-                .* (xyzlist(:,1) < (max(outs{ii,1}(j,1),outs{ii,1}(j+1,1))+8));
-            idxs = find(f0.*f1.*f2);
+            f1 = (cellCandidCoord(:,2) > allRowList{rowNo,1}(j,2)).*(cellCandidCoord(:,2) < allRowList{rowNo,1}(j+1,2));
+            f2 = (cellCandidCoord(:,1) > (min(allRowList{rowNo,1}(j,1),allRowList{rowNo,1}(j+1,1))-8)) ...
+                .* (cellCandidCoord(:,1) < (max(allRowList{rowNo,1}(j,1),allRowList{rowNo,1}(j+1,1))+8));
+            recoverCandidIndList = find(isRemovedList.*f1.*f2);
             
-            if ~isempty(idxs)
-                idxs2 = datalist(idxs,1);
-                xyz4 = SwitchColumn1_2(cat(1,S(idxs2).PixelList));
-                [idxs3,d] = knnsearch(xyz4,xyz3);
-                xyz5 = xyz4(idxs3(d<3,:),:);
-                if ~isempty(xyz5)
-                    idxs4 = sub2ind(Isize,xyz5(:,1),xyz5(:,2),xyz5(:,3));
-                    idxs5 = unique(L(idxs4));
-                    for kk = size(idxs5,1)
-                        datalist(datalist(:,1) == idxs5(kk),2) = ii;
-                        datalist(datalist(:,1) == idxs5(kk),3:5) = xyz5(1,:);
+            if ~isempty(recoverCandidIndList)
+                idxList = cellCandidData(recoverCandidIndList,1);
+                candidPixelList = SwitchColumn1_2(cat(1,S(idxList).PixelList));
+                [idxs3,d] = knnsearch(candidPixelList,gapCoords);
+                candidPixelList2 = candidPixelList(idxs3(d<3,:),:);
+                if ~isempty(candidPixelList2)
+                    linearIndice = sub2ind(imSize,candidPixelList2(:,1),candidPixelList2(:,2),candidPixelList2(:,3));
+                    groupNo1 = L(linearIndice);
+                    groupNo2 = unique(groupNo1);
+                    for kk = size(groupNo2,1)
+                        cellCandidData(cellCandidData(:,1) == groupNo2(kk),2) = rowNo;
+                        isGroupList = groupNo1 == groupNo2(kk);
+                        tempCoords = candidPixelList2(isGroupList>0,:);                        
+                        cellCandidData(cellCandidData(:,1) == groupNo2(kk),3:5) = tempCoords(1,:);
                     end
                 end
             end
@@ -221,117 +229,121 @@ for ii = 1:3
     end
 end
 
-leftend = round(min(innerCells2(:,2)));
-rightend = round(max(innerCells2(:,2)));
-xyzlist = datalist(:,3:5);
+rightEnd = round(max(innerCells2(:,2)));
+cellCandidCoord = cellCandidData(:,3:5);
 
+% Compute average z coordinate in segments
 interval = 60;
 width = 60;
-stlist = [(leftend:interval:rightend-width), rightend-width+1]';
-zlist = zeros(size(stlist,1),4);
-for j = 1:size(stlist,1)
-    f1 = (datalist(:,2)==1).*(xyzlist(:,2) >= stlist(j)).*(xyzlist(:,2) < stlist(j)+width);
-    f2 = (datalist(:,2)==2).*(xyzlist(:,2) >= stlist(j)).*(xyzlist(:,2) < stlist(j)+width);
-    f3 = (datalist(:,2)==3).*(xyzlist(:,2) >= stlist(j)).*(xyzlist(:,2) < stlist(j)+width);
-    temp1 = xyzlist(f1>0,3);
-    temp2 = xyzlist(f2>0,3);
-    temp3 = xyzlist(f3>0,3);
-    zlist(j,:) = [stlist(j)+width/2 mean(temp1) mean(temp2) mean(temp3)];
+startPointList = [(leftEnd:interval:rightEnd-width), rightEnd-width+1]';
+zList = zeros(size(startPointList,1),4);
+for j = 1:size(startPointList,1)
+    f1 = (cellCandidData(:,2)==1).*(cellCandidCoord(:,2) >= startPointList(j)).*(cellCandidCoord(:,2) < startPointList(j)+width);
+    f2 = (cellCandidData(:,2)==2).*(cellCandidCoord(:,2) >= startPointList(j)).*(cellCandidCoord(:,2) < startPointList(j)+width);
+    f3 = (cellCandidData(:,2)==3).*(cellCandidCoord(:,2) >= startPointList(j)).*(cellCandidCoord(:,2) < startPointList(j)+width);
+    row1Zs = cellCandidCoord(f1>0,3);
+    row2Zs = cellCandidCoord(f2>0,3);
+    row3Zs = cellCandidCoord(f3>0,3);
+    zList(j,:) = [startPointList(j)+width/2 mean(row1Zs) mean(row2Zs) mean(row3Zs)];
 end
-f = sum(isnan(zlist),2)>0;
-zlist(f>0,:) = [];
-qzlist = interp1(zlist(:,1),zlist(:,2:4),(1:Isize(2))','linear','extrap');
+f = sum(isnan(zList),2)>0;
+zList(f>0,:) = [];
+interpZList = interp1(zList(:,1),zList(:,2:4),(1:imSize(2))','linear','extrap');
 
-for j = 1:size(datalist,1)
-    if datalist(j,2)==1 || datalist(j,2)==2 || datalist(j,2)==3
-        if abs(datalist(j,5)-qzlist(round(datalist(j,4)),datalist(j,2)))>9 %臒l
-            datalist(j,2) = -1;
+% Remove candidates far from average value of z coordinate
+for j = 1:size(cellCandidData,1)
+    if cellCandidData(j,2)==1 || cellCandidData(j,2)==2 || cellCandidData(j,2)==3
+        if abs(cellCandidData(j,5)-interpZList(round(cellCandidData(j,4)),cellCandidData(j,2)))>9
+            cellCandidData(j,2) = -1;
         end
     end
 end
 
+% Compute average inner-row intervals 
 interval = 250;
 width = 250;
-stlist = [(leftend:interval:rightend-width), rightend-width+1]';
-ydlist = zeros(size(stlist,1),2);
-for j = 1:size(stlist,1)
-    f1 = (datalist(:,2)==1).*(xyzlist(:,2) >= stlist(j)).*(xyzlist(:,2) < stlist(j)+width);
-    f2 = (datalist(:,2)==2).*(xyzlist(:,2) >= stlist(j)).*(xyzlist(:,2) < stlist(j)+width);
-    f3 = (datalist(:,2)==3).*(xyzlist(:,2) >= stlist(j)).*(xyzlist(:,2) < stlist(j)+width);
-    temp1 = diff(sort(xyzlist(f1>0,2)));
-    temp2 = diff(sort(xyzlist(f2>0,2)));
-    temp3 = diff(sort(xyzlist(f3>0,2)));
-    ydlist(j,:) = [stlist(j)+width/2 median([temp1; temp2; temp3])];
+startPointList = [(leftEnd:interval:rightEnd-width), rightEnd-width+1]';
+innerRowIntervals = zeros(size(startPointList,1),2);
+for j = 1:size(startPointList,1)
+    f1 = (cellCandidData(:,2)==1).*(cellCandidCoord(:,2) >= startPointList(j)).*(cellCandidCoord(:,2) < startPointList(j)+width);
+    f2 = (cellCandidData(:,2)==2).*(cellCandidCoord(:,2) >= startPointList(j)).*(cellCandidCoord(:,2) < startPointList(j)+width);
+    f3 = (cellCandidData(:,2)==3).*(cellCandidCoord(:,2) >= startPointList(j)).*(cellCandidCoord(:,2) < startPointList(j)+width);
+    temp1 = diff(sort(cellCandidCoord(f1>0,2)));
+    temp2 = diff(sort(cellCandidCoord(f2>0,2)));
+    temp3 = diff(sort(cellCandidCoord(f3>0,2)));
+    innerRowIntervals(j,:) = [startPointList(j)+width/2 median([temp1; temp2; temp3])];
 end
+f = sum(isnan(innerRowIntervals),2)>0;
+innerRowIntervals(f>0,:) = [];
+innerRowIntervals(:,2) = medfilt1(innerRowIntervals(:,2));
+interpIntervalList = interp1(innerRowIntervals(:,1),innerRowIntervals(:,2),(1:imSize(2))','linear','extrap');
 
-f = sum(isnan(ydlist),2)>0;
-ydlist(f>0,:) = [];
-ydlist(:,2) = medfilt1(ydlist(:,2));
-qylist = interp1(ydlist(:,1),ydlist(:,2),(1:Isize(2))','linear','extrap');
-
-for j = 1:size(datalist,1)
-    if datalist(j,2)~=-1
-        templabel = datalist(j,2);
-        if templabel == 4
-            templabel = 3;
+% Adjust z coordinates of cell candidates
+for j = 1:size(cellCandidData,1)
+    if cellCandidData(j,2)~=-1
+        tempRowLabel = cellCandidData(j,2);
+        if tempRowLabel == 4
+            tempRowLabel = 3;
         end
-        tempy = datalist(j,4);
-        templist = SwitchColumn1_2(cat(1,S(datalist(j,1)).PixelList));
-        idx =  knnsearch(templist(:,3),qzlist(round(tempy),templabel));
-        datalist(j,3:5) = templist(idx,:);
+        tempy = cellCandidData(j,4);
+        tempList = SwitchColumn1_2(cat(1,S(cellCandidData(j,1)).PixelList));
+        idx =  knnsearch(tempList(:,3),interpZList(round(tempy),tempRowLabel));
+        cellCandidData(j,3:5) = tempList(idx,:);
     end
 end
 
-for ii = 1:3
-    out1 = sortrows(datalist(datalist(:,2)==1,3:5),2);
-    out2 = sortrows(datalist(datalist(:,2)==2,3:5),2);
-    out3 = sortrows(datalist(datalist(:,2)==3,3:5),2);
-    outs = {out1;out2;out3};
-    dif_1 = diff(out1);
-    dif_2 = diff(out2);
-    dif_3 = diff(out3);
-    difs = {dif_1;dif_2;dif_3};
-    xyzlist = datalist(:,3:5);
+% Remove too close candidate pairs (2nd)
+for rowNo = 1:3
+    row1List = sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2);
+    row2List = sortrows(cellCandidData(cellCandidData(:,2)==2,3:5),2);
+    row3List = sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2);
+    allRowList = {row1List;row2List;row3List};
+    row1Intervals = diff(row1List);
+    row2Intervals = diff(row2List);
+    row3Intervals = diff(row3List);
+    allRowIntervals = {row1Intervals;row2Intervals;row3Intervals};
+    cellCandidCoord = cellCandidData(:,3:5);
     
-    for j = 1:size(difs{ii,1})
-        if difs{ii,1}(j,2) < 5
-            xyz1 = outs{ii,1}(j,:);
-            xyz2 = outs{ii,1}(j+1,:);
-            f1 = (xyzlist(:,1) == xyz1(1)) .* (xyzlist(:,2) == xyz1(2)) ...
-                .* (xyzlist(:,3) == xyz1(3));
-            f2 = (xyzlist(:,1) == xyz2(1)) .* (xyzlist(:,2) == xyz2(2)) ...
-                .* (xyzlist(:,3) == xyz2(3));
+    for j = 1:size(allRowIntervals{rowNo,1})
+        if allRowIntervals{rowNo,1}(j,2) < 5
+            xyz1 = allRowList{rowNo,1}(j,:);
+            xyz2 = allRowList{rowNo,1}(j+1,:);
+            f1 = (cellCandidCoord(:,1) == xyz1(1)) .* (cellCandidCoord(:,2) == xyz1(2)) ...
+                .* (cellCandidCoord(:,3) == xyz1(3));
+            f2 = (cellCandidCoord(:,1) == xyz2(1)) .* (cellCandidCoord(:,2) == xyz2(2)) ...
+                .* (cellCandidCoord(:,3) == xyz2(3));
             if abs(xyz1(1)-xyz2(1))<4
-                datalist(f1>0,2) = -1;
-                datalist(f2>0,2) = -1;
+                cellCandidData(f1>0,2) = -1;
+                cellCandidData(f2>0,2) = -1;
             else
-                datalist(f1>0,2) = 4;
-                datalist(f2>0,2) = 4;
+                cellCandidData(f1>0,2) = 4;
+                cellCandidData(f2>0,2) = 4;
             end
         end
     end
 end
 
-f1 = datalist(:,2)==-1;
-f2 = datalist(:,6)>0.8;
-datalist(f1.*f2>0,2) = 4;
+% Recover removed candidates with high prediction scores (2nd)
+f1 = cellCandidData(:,2)==-1;
+f2 = cellCandidData(:,6)>0.8;
+cellCandidData(f1.*f2>0,2) = 4;
 
-%% Examine gaps within rows of estimated outer hair cells 
+%% Examine gaps within row of estimated outer hair cells 
 o_del = cell(3,1);
 delcand = cell(3,1);
 addcand = cell(3,1);
 addlabel = [];
 xyzlistL = GetCoordOfPositivePixels(L>0);
 
-for ii = 1:3
-    outlist = sortrows(datalist(datalist(:,2)==ii,3:5),2);
-    temp = diff(outlist);
+for rowNo = 1:3
+    rowCoordList = sortrows(cellCandidData(cellCandidData(:,2)==rowNo,3:5),2);
+    temp = diff(rowCoordList);
     difnorm = sqrt(sum(temp(:,1:2).^2,2));
-    xyzlist = datalist(:,3:5);
+    cellCandidCoord = cellCandidData(:,3:5);
     for j = 1:size(difnorm)
         if difnorm(j,1) > 11
-            xyz1 = outlist(j,:);
-            xyz2 = outlist(j+1,:);
+            xyz1 = rowCoordList(j,:);
+            xyz2 = rowCoordList(j+1,:);
             
             xyz1_3 = xyz1;
             xyz2_3 = xyz2;
@@ -339,36 +351,36 @@ for ii = 1:3
             
             xyz1_4 = xyz1_3;
             xyz2_4 = xyz2_3;
-            dnum = max(1,round(mindist/qylist(round(xyz1(2)))-1));
+            dnum = max(1,round(mindist/interpIntervalList(round(xyz1(2)))-1));
             
             if dnum == 1
                 xyz3 = mean([xyz1_4;xyz2_4]);
-                param = ObtainPixelValuesAround2(xyz3,linearizedIm2);
-                temppred = classify(net2,param);
-                delcand{ii,1} = [delcand{ii,1}; xyz3];
-                [param2,tempxyz,d] = ObtainFeatureQuantities(xyz3,ii,xyzlist2 ...
-                    ,idxlist,L,scores2,leftend,outC);
+                predictorIm = ObtainPixelValuesAround2(xyz3,linearizedIm2);
+                temppred = classify(net2,predictorIm);
+                delcand{rowNo,1} = [delcand{rowNo,1}; xyz3];
+                [param2,tempCoord,d] = ObtainFeatureQuantities(xyz3,rowNo,selectedPixelList ...
+                    ,selectedIndexList,L,predictionScores2,leftEnd,outC);
 
                 if temppred == '1'
-                    o_del{ii,1} = [o_del{ii,1}; xyz3];
+                    o_del{rowNo,1} = [o_del{rowNo,1}; xyz3];
                 else
                     if d < 3.5
-                        tempidx = L(tempxyz(1),tempxyz(2),tempxyz(3));
-                        templabel = datalist(idxlist == tempidx,2);
-                        tempidx2 = find(idxlist == tempidx);
-                        if templabel ~= ii
-                            datalist(tempidx2,2) = ii;
-                            datalist(tempidx2,3:5) = tempxyz;
+                        tempIdx = L(tempCoord(1),tempCoord(2),tempCoord(3));
+                        templabel = cellCandidData(selectedIndexList == tempIdx,2);
+                        tempidx2 = find(selectedIndexList == tempIdx);
+                        if templabel ~= rowNo
+                            cellCandidData(tempidx2,2) = rowNo;
+                            cellCandidData(tempidx2,3:5) = tempCoord;
                         end
                     else
                         [Lidx,Ld] = knnsearch(xyzlistL,xyz3);
                         if Ld < 3.5
-                            tempxyz = xyzlistL(Lidx,:);
-                            templabel = L(tempxyz(1),tempxyz(2),tempxyz(3));
-                            datalist = [datalist; double(templabel),ii,tempxyz,NaN];
-                            addlabel = [addlabel; [double(templabel) xyz3 score1(templabel,2)]];
+                            tempCoord = xyzlistL(Lidx,:);
+                            templabel = L(tempCoord(1),tempCoord(2),tempCoord(3));
+                            cellCandidData = [cellCandidData; double(templabel),rowNo,tempCoord,NaN];
+                            addlabel = [addlabel; [double(templabel) xyz3 predictionScores1(templabel,2)]];
                         end
-                        addcand{ii,1} = [addcand{ii,1}; xyz3];
+                        addcand{rowNo,1} = [addcand{rowNo,1}; xyz3];
                     end
                 end
             elseif dnum == 2
@@ -379,37 +391,37 @@ for ii = 1:3
                 param1_2 = ObtainPixelValuesAround2(xyz3(2,:),linearizedIm2);
                 temppred = classify(net2,cat(4,param1_1, param1_2));
                 
-                delcand{ii,1} = [delcand{ii,1}; xyz3];
+                delcand{rowNo,1} = [delcand{rowNo,1}; xyz3];
                 
-                param2_1 = ObtainFeatureQuantities(xyz3(1,:),ii,xyzlist2,idxlist,L ...
-                    ,scores2,leftend,outC);
-                param2_2 = ObtainFeatureQuantities(xyz3(2,:),ii,xyzlist2,idxlist,L ...
-                    ,scores2,leftend,outC);
+                param2_1 = ObtainFeatureQuantities(xyz3(1,:),rowNo,selectedPixelList,selectedIndexList,L ...
+                    ,predictionScores2,leftEnd,outC);
+                param2_2 = ObtainFeatureQuantities(xyz3(2,:),rowNo,selectedPixelList,selectedIndexList,L ...
+                    ,predictionScores2,leftEnd,outC);
                 
                 for k = 1:2
                     if temppred(k,1) == '1'
-                        o_del{ii,1} = [o_del{ii,1}; xyz3(k,:)];
+                        o_del{rowNo,1} = [o_del{rowNo,1}; xyz3(k,:)];
                     else
-                        [idx, d] = knnsearch(xyzlist2,xyz3(k,:));
+                        [idx, d] = knnsearch(selectedPixelList,xyz3(k,:));
                         if d < 3.5
-                            tempxyz = xyzlist2(idx,:);
-                            tempidx = L(tempxyz(1),tempxyz(2),tempxyz(3));
-                            tempidx2 = find(idxlist == tempidx);
-                            templabel = datalist(tempidx2,2);
-                            if templabel ~= ii
-                                datalist(tempidx2,2) = ii;
-                                datalist(tempidx2,3:5) = tempxyz;
+                            tempCoord = selectedPixelList(idx,:);
+                            tempIdx = L(tempCoord(1),tempCoord(2),tempCoord(3));
+                            tempidx2 = find(selectedIndexList == tempIdx);
+                            templabel = cellCandidData(tempidx2,2);
+                            if templabel ~= rowNo
+                                cellCandidData(tempidx2,2) = rowNo;
+                                cellCandidData(tempidx2,3:5) = tempCoord;
                             end
                         else
                             [Lidx,Ld] = knnsearch(xyzlistL,xyz3(k,:));
                             if Ld < 3.5
-                                tempxyz = xyzlistL(Lidx,:);
-                                templabel = L(tempxyz(1),tempxyz(2),tempxyz(3));
-                                datalist = [datalist; double(templabel),ii,tempxyz, NaN];
+                                tempCoord = xyzlistL(Lidx,:);
+                                templabel = L(tempCoord(1),tempCoord(2),tempCoord(3));
+                                cellCandidData = [cellCandidData; double(templabel),rowNo,tempCoord, NaN];
                                 addlabel = [addlabel; [double(templabel) xyz3(k,:) ...
-                                    score1(templabel,2)]];
+                                    predictionScores1(templabel,2)]];
                             end
-                            addcand{ii,1} = [addcand{ii,1}; xyz3(k,:)];
+                            addcand{rowNo,1} = [addcand{rowNo,1}; xyz3(k,:)];
                         end
                     end
                 end
@@ -417,18 +429,18 @@ for ii = 1:3
                 for kk = 1:100
                     lastxyz = xyz1_3;
 
-                    out1 = sortrows(datalist(datalist(:,2)==1,3:5),2);
-                    out2 = sortrows(datalist(datalist(:,2)==2,3:5),2);
-                    out3 = sortrows(datalist(datalist(:,2)==3,3:5),2);
+                    row1List = sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2);
+                    row2List = sortrows(cellCandidData(cellCandidData(:,2)==2,3:5),2);
+                    row3List = sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2);
                     
-                    [idx1] = knnsearch(out1,lastxyz,'k',2);
-                    [idx2] = knnsearch(out2,lastxyz,'k',2);
-                    [idx3] = knnsearch(out3,lastxyz,'k',2);
-                    vector1 = out1(max(idx1),:)-out1(min(idx1),:);
+                    [idx1] = knnsearch(row1List,lastxyz,'k',2);
+                    [idx2] = knnsearch(row2List,lastxyz,'k',2);
+                    [idx3] = knnsearch(row3List,lastxyz,'k',2);
+                    vector1 = row1List(max(idx1),:)-row1List(min(idx1),:);
                     vector1 = vector1/norm(vector1);
-                    vector2 = out2(max(idx2),:)-out2(min(idx2),:);
+                    vector2 = row2List(max(idx2),:)-row2List(min(idx2),:);
                     vector2 = vector2/norm(vector2);
-                    vector3 = out3(max(idx3),:)-out3(min(idx3),:);
+                    vector3 = row3List(max(idx3),:)-row3List(min(idx3),:);
                     vector3 = vector3/norm(vector3);
                     
                     vector4 = xyz2_3 - lastxyz;
@@ -438,56 +450,56 @@ for ii = 1:3
                     vector(3) = 0;
                     vector = vector/norm(vector);
                     
-                    nextxyz = lastxyz + vector*qylist(round(xyz1(2)));
+                    nextxyz = lastxyz + vector*interpIntervalList(round(xyz1(2)));
                     d1 = norm(xyz2_3-nextxyz);
                     d2 = xyz2_3(2)-nextxyz(2);
-                    if d2 < qylist(round(xyz2(2)))/2
+                    if d2 < interpIntervalList(round(xyz2(2)))/2
                         break
-                    elseif d1 < qylist(round(xyz2(2)))
+                    elseif d1 < interpIntervalList(round(xyz2(2)))
                         nextxyz = mean([lastxyz; xyz2_3]);
                     end
                     
                     rparam2 = ObtainPixelValuesAround2(nextxyz,linearizedIm2);
                     temppred = classify(net2,rparam2);
                     
-                    [rparam,tempxyz,d] = ObtainFeatureQuantities(nextxyz,ii,xyzlist2 ...
-                        ,idxlist,L,scores2,leftend,outC);
+                    [rparam,tempCoord,d] = ObtainFeatureQuantities(nextxyz,rowNo,selectedPixelList ...
+                        ,selectedIndexList,L,predictionScores2,leftEnd,outC);
                     
-                    delcand{ii,1} = [delcand{ii,1}; nextxyz];
+                    delcand{rowNo,1} = [delcand{rowNo,1}; nextxyz];
                     if temppred == '1'
-                        o_del{ii,1} = [o_del{ii,1}; nextxyz];
+                        o_del{rowNo,1} = [o_del{rowNo,1}; nextxyz];
                     else
                         if d < 3.5
-                            tempidx = L(tempxyz(1),tempxyz(2),tempxyz(3));
-                            templabel = datalist(idxlist == tempidx,2);
-                            tempidx2 = find(idxlist == tempidx);
-                            if templabel ~= ii 
+                            tempIdx = L(tempCoord(1),tempCoord(2),tempCoord(3));
+                            templabel = cellCandidData(selectedIndexList == tempIdx,2);
+                            tempidx2 = find(selectedIndexList == tempIdx);
+                            if templabel ~= rowNo 
                                 if templabel == -1 || templabel == 4
-                                    datalist(tempidx2,2) = ii;
-                                    datalist(tempidx2,3:5) = tempxyz;
-                                elseif ii == 1 
-                                    tempxyz = lastxyz;
-                                    tempxyz(1) = tempxyz(1)-5;
-                                elseif ii == 2 
-                                    datalist(tempidx2,2) = ii;
-                                    datalist(tempidx2,3:5) = tempxyz;
-                                elseif ii == 3 
-                                    tempxyz = lastxyz; 
-                                    tempxyz(1) = tempxyz(1)+5;
+                                    cellCandidData(tempidx2,2) = rowNo;
+                                    cellCandidData(tempidx2,3:5) = tempCoord;
+                                elseif rowNo == 1 
+                                    tempCoord = lastxyz;
+                                    tempCoord(1) = tempCoord(1)-5;
+                                elseif rowNo == 2 
+                                    cellCandidData(tempidx2,2) = rowNo;
+                                    cellCandidData(tempidx2,3:5) = tempCoord;
+                                elseif rowNo == 3 
+                                    tempCoord = lastxyz; 
+                                    tempCoord(1) = tempCoord(1)+5;
                                 end
                             end
-                            nextxyz = tempxyz;
+                            nextxyz = tempCoord;
                         else
                             [Lidx,Ld] = knnsearch(xyzlistL,nextxyz);
                             if Ld < 3.5
-                                tempxyz = xyzlistL(Lidx,:);
-                                templabel = L(tempxyz(1),tempxyz(2),tempxyz(3));
-                                datalist = [datalist; double(templabel),ii,tempxyz,NaN];
+                                tempCoord = xyzlistL(Lidx,:);
+                                templabel = L(tempCoord(1),tempCoord(2),tempCoord(3));
+                                cellCandidData = [cellCandidData; double(templabel),rowNo,tempCoord,NaN];
                                 addlabel = [addlabel; [double(templabel) nextxyz ...
-                                    score1(templabel,2)]];
-                                nextxyz = tempxyz;
+                                    predictionScores1(templabel,2)]];
+                                nextxyz = tempCoord;
                             end
-                            addcand{ii,1} = [addcand{ii,1}; nextxyz];                          
+                            addcand{rowNo,1} = [addcand{rowNo,1}; nextxyz];                          
                         end
                     end
                     xyz1_3 = nextxyz;
@@ -501,32 +513,32 @@ end
 %% Examine the end ot rows of estimated outer hair cells 
 tempadd = cell(3,1);
 for j = 1:200
-    out1 = sortrows([datalist(datalist(:,2)==1,3:5); tempadd{1,1}],2);
-    out2 = sortrows([datalist(datalist(:,2)==2,3:5); tempadd{2,1}],2);
-    out3 = sortrows([datalist(datalist(:,2)==3,3:5); tempadd{3,1}],2);
-    out_lasts = [out1(end,:);out2(end,:);out3(end,:)];
+    row1List = sortrows([cellCandidData(cellCandidData(:,2)==1,3:5); tempadd{1,1}],2);
+    row2List = sortrows([cellCandidData(cellCandidData(:,2)==2,3:5); tempadd{2,1}],2);
+    row3List = sortrows([cellCandidData(cellCandidData(:,2)==3,3:5); tempadd{3,1}],2);
+    out_lasts = [row1List(end,:);row2List(end,:);row3List(end,:)];
     [~,lineidx] = min(out_lasts(:,2));
     lastxyz = out_lasts(lineidx,:);
 
-    [idx1] = knnsearch(out1,lastxyz,'k',2);
-    [idx2] = knnsearch(out2,lastxyz,'k',2);
-    [idx3] = knnsearch(out3,lastxyz,'k',2);
-    vector1 = out1(max(idx1),:)-out1(min(idx1),:);
+    [idx1] = knnsearch(row1List,lastxyz,'k',2);
+    [idx2] = knnsearch(row2List,lastxyz,'k',2);
+    [idx3] = knnsearch(row3List,lastxyz,'k',2);
+    vector1 = row1List(max(idx1),:)-row1List(min(idx1),:);
     vector1 = vector1/norm(vector1);
-    vector2 = out2(max(idx2),:)-out2(min(idx2),:);
+    vector2 = row2List(max(idx2),:)-row2List(min(idx2),:);
     vector2 = vector2/norm(vector2);
-    vector3 = out3(max(idx3),:)-out3(min(idx3),:);
+    vector3 = row3List(max(idx3),:)-row3List(min(idx3),:);
     vector3 = vector3/norm(vector3);
     vector = mean([vector1;vector2;vector3;[0 1 0]]);
     vector = vector/norm(vector);
     
     nextxyz = lastxyz + vector*7.8;
 
-    if nextxyz(2) > Isize(2)-10
+    if nextxyz(2) > imSize(2)-10
         break
     end
-    tempxyz = round(nextxyz);
-    tempint = linearizedIm2(tempxyz(1),tempxyz(2)+5,tempxyz(3));
+    tempCoord = round(nextxyz);
+    tempint = linearizedIm2(tempCoord(1),tempCoord(2)+5,tempCoord(3));
     if tempint==0
         break
     end
@@ -534,77 +546,77 @@ for j = 1:200
     rparam2 = ObtainPixelValuesAround2(nextxyz,linearizedIm2);
     temppred = classify(net2,rparam2);
     
-    [rparam,xyz4,d] = ObtainFeatureQuantities(nextxyz,lineidx,xyzlist2,idxlist,L ...
-        ,scores2,leftend,outC);
+    [rparam,xyz4,d] = ObtainFeatureQuantities(nextxyz,lineidx,selectedPixelList,selectedIndexList,L ...
+        ,predictionScores2,leftEnd,outC);
     
     delcand{lineidx,1} = [delcand{lineidx,1}; nextxyz];
     
     if temppred ~= '1' && d < 3
         nextxyz = xyz4;
 
-        tempidx = L(xyz4(1),xyz4(2),xyz4(3));
-        templabel = datalist(idxlist == tempidx,2);
-        tempidx2 = find(idxlist == tempidx);
+        tempIdx = L(xyz4(1),xyz4(2),xyz4(3));
+        templabel = cellCandidData(selectedIndexList == tempIdx,2);
+        tempidx2 = find(selectedIndexList == tempIdx);
         
         if templabel ~= lineidx
             if templabel == -1 || templabel == 4
-                datalist(tempidx2,2) = lineidx;
-                datalist(tempidx2,3:5) = nextxyz;
+                cellCandidData(tempidx2,2) = lineidx;
+                cellCandidData(tempidx2,3:5) = nextxyz;
             elseif lineidx == 1 
                 nextxyz = lastxyz; 
                 nextxyz(1) = nextxyz(1)-5;
                 nextxyz(2) = nextxyz(2)+1;
                 tempadd{lineidx,1} = [tempadd{lineidx,1}; nextxyz];
             elseif lineidx == 2 
-                datalist(tempidx2,2) = lineidx;
-                datalist(tempidx2,3:5) = nextxyz;
+                cellCandidData(tempidx2,2) = lineidx;
+                cellCandidData(tempidx2,3:5) = nextxyz;
             elseif lineidx == 3 
-                datalist(tempidx2,2) = lineidx;
-                datalist(tempidx2,3:5) = nextxyz;
+                cellCandidData(tempidx2,2) = lineidx;
+                cellCandidData(tempidx2,3:5) = nextxyz;
             end
         end
         
     elseif temppred == '1' 
-        o_del{ii,1} = [o_del{ii,1}; nextxyz];
+        o_del{rowNo,1} = [o_del{rowNo,1}; nextxyz];
         tempadd{lineidx,1} = [tempadd{lineidx,1}; nextxyz];
     else
         [Lidx,Ld] = knnsearch(xyzlistL,nextxyz);
         if Ld < 3 
-            tempxyz = xyzlistL(Lidx,:);
-            templabel = L(tempxyz(1),tempxyz(2),tempxyz(3));
-            datalist = [datalist; double(templabel),lineidx,tempxyz,NaN];
-            addlabel = [addlabel; [double(templabel) tempxyz score1(templabel,2)]];
+            tempCoord = xyzlistL(Lidx,:);
+            templabel = L(tempCoord(1),tempCoord(2),tempCoord(3));
+            cellCandidData = [cellCandidData; double(templabel),lineidx,tempCoord,NaN];
+            addlabel = [addlabel; [double(templabel) tempCoord predictionScores1(templabel,2)]];
         else
             tempadd{lineidx,1} = [tempadd{lineidx,1}; nextxyz];
         end
     end
 end
 
-out1 = sortrows(datalist(datalist(:,2)==1,3:5),2);
-out2 = sortrows(datalist(datalist(:,2)==2,3:5),2);
-out3 = sortrows(datalist(datalist(:,2)==3,3:5),2);
-outlist = [out1; out2; out3];
-out4 = sortrows(datalist(datalist(:,2)==4,3:5),2);
+row1List = sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2);
+row2List = sortrows(cellCandidData(cellCandidData(:,2)==2,3:5),2);
+row3List = sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2);
+outerHairCells = [row1List; row2List; row3List];
+out4 = sortrows(cellCandidData(cellCandidData(:,2)==4,3:5),2);
 delcandlist = [cat(1,delcand{:}); out4];
 
 add4 = [];
 for k = 1:20
     if isempty(add4)
-        [~,d] = knnsearch(outlist(:,1:2),out4(:,1:2));
+        [~,d] = knnsearch(outerHairCells(:,1:2),out4(:,1:2));
     else
-        [~,d] = knnsearch([outlist(:,1:2); add4(:,1:2)],out4(:,1:2));
+        [~,d] = knnsearch([outerHairCells(:,1:2); add4(:,1:2)],out4(:,1:2));
     end
     f = (d>6).*(d<10);
     add4 = [add4; out4(f>0,:)];
 end
-f = abs(add4(:,3) - qzlist(round(add4(:,2)),3))>5;
+f = abs(add4(:,3) - interpZList(round(add4(:,2)),3))>5;
 add4(f>0,:) = [];
 
 temp = [];
-for k = 1:size(leftadd,1)
-    f = datalist(:,1)==leftadd(k,1);
-    if datalist(f>0,2)==-1 || datalist(f>0,2)==4
-        [~,d] = knnsearch([outlist(:,1:2); add4(:,1:2)],datalist(find(f),3:4));
+for k = 1:size(apicalCandidates,1)
+    f = cellCandidData(:,1)==apicalCandidates(k,1);
+    if cellCandidData(f>0,2)==-1 || cellCandidData(f>0,2)==4
+        [~,d] = knnsearch([outerHairCells(:,1:2); add4(:,1:2)],cellCandidData(find(f),3:4));
         if d>5
            temp = [temp; find(f)];
         else
@@ -613,8 +625,8 @@ for k = 1:size(leftadd,1)
     end
 end
 
-add5 = datalist(temp,3:5);
-f = abs(add5(:,3) - mean(qzlist(round(add5(:,2)),:),2))>5;
+add5 = cellCandidData(temp,3:5);
+f = abs(add5(:,3) - mean(interpZList(round(add5(:,2)),:),2))>5;
 add5(f>0,:) = [];
 add4 = unique([add4;add5],'rows');
 
@@ -625,8 +637,8 @@ end
 temppred = classify(net2,tempparam);
 add4(temppred=='1',:)=[];
 
-outlist = [sortrows(datalist(datalist(:,2)==1,3:5),2); sortrows(datalist(datalist(:,2) ...
-    ==2,3:5),2); sortrows(datalist(datalist(:,2)==3,3:5),2); add4];
+outlist = [sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2); sortrows(cellCandidData(cellCandidData(:,2) ...
+    ==2,3:5),2); sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2); add4];
 
 incim = DrawMarkedIm(linearizedIm2,round(outlist),1,1);
 incim = uint16(incim*1000);
