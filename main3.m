@@ -136,13 +136,13 @@ for j = 1:size(cellCandidData,1)
         if tempData(4) > imSize(2)-10 || tempData(5) < 6 || tempData(5) > imSize(1)-6
             cellCandidData(j,2) = -1;
         else
-            tempCoord = round(tempData(3:5));
-            if tempCoord(1)+5>imSize(1)
+            nearestPeakPoint = round(tempData(3:5));
+            if nearestPeakPoint(1)+5>imSize(1)
                 cellCandidData(j,2) = -1;
             else              
-                pixelValue1 = linearizedIm2(tempCoord(1),tempCoord(2)+10,tempCoord(3));
-                pixelValue2 = linearizedIm2(tempCoord(1)-5,tempCoord(2),tempCoord(3));
-                pixelValue3 = linearizedIm2(tempCoord(1)+5,tempCoord(2),tempCoord(3));
+                pixelValue1 = linearizedIm2(nearestPeakPoint(1),nearestPeakPoint(2)+10,nearestPeakPoint(3));
+                pixelValue2 = linearizedIm2(nearestPeakPoint(1)-5,nearestPeakPoint(2),nearestPeakPoint(3));
+                pixelValue3 = linearizedIm2(nearestPeakPoint(1)+5,nearestPeakPoint(2),nearestPeakPoint(3));
             if pixelValue1 == 0 || pixelValue2 == 0 || pixelValue3 == 0
                 cellCandidData(j,2) = -1;
             end
@@ -211,8 +211,8 @@ for rowNo = 1:3
             if ~isempty(recoverCandidIndList)
                 idxList = cellCandidData(recoverCandidIndList,1);
                 candidPixelList = SwitchColumn1_2(cat(1,S(idxList).PixelList));
-                [idxs3,d] = knnsearch(candidPixelList,gapCoords);
-                candidPixelList2 = candidPixelList(idxs3(d<3,:),:);
+                [idxs3,nearestDist] = knnsearch(candidPixelList,gapCoords);
+                candidPixelList2 = candidPixelList(idxs3(nearestDist<3,:),:);
                 if ~isempty(candidPixelList2)
                     linearIndice = sub2ind(imSize,candidPixelList2(:,1),candidPixelList2(:,2),candidPixelList2(:,3));
                     groupNo1 = L(linearIndice);
@@ -329,180 +329,147 @@ f2 = cellCandidData(:,6)>0.8;
 cellCandidData(f1.*f2>0,2) = 4;
 
 %% Examine gaps within row of estimated outer hair cells 
-o_del = cell(3,1);
-delcand = cell(3,1);
-addcand = cell(3,1);
-addlabel = [];
-xyzlistL = GetCoordOfPositivePixels(L>0);
+peakPixelList = GetCoordOfPositivePixels(L>0);
 
 for rowNo = 1:3
     rowCoordList = sortrows(cellCandidData(cellCandidData(:,2)==rowNo,3:5),2);
     temp = diff(rowCoordList);
-    difnorm = sqrt(sum(temp(:,1:2).^2,2));
+    neighborDistList = sqrt(sum(temp(:,1:2).^2,2));
     cellCandidCoord = cellCandidData(:,3:5);
-    for j = 1:size(difnorm)
-        if difnorm(j,1) > 11
-            xyz1 = rowCoordList(j,:);
-            xyz2 = rowCoordList(j+1,:);
+    for j = 1:size(neighborDistList)
+        if neighborDistList(j,1) > 11
+            leftCellCoord = rowCoordList(j,:);
+            rightCellCoord = rowCoordList(j+1,:);            
+            tempLeftCellCoord = leftCellCoord;
+            neighborDist = norm(leftCellCoord-rightCellCoord); % Estimate the number of lost cell in gap space
+            lostCellNo = max(1,round(neighborDist/interpIntervalList(round(leftCellCoord(2)))-1));
             
-            xyz1_3 = xyz1;
-            xyz2_3 = xyz2;
-            mindist = norm(xyz1-xyz2);
-            
-            xyz1_4 = xyz1_3;
-            xyz2_4 = xyz2_3;
-            dnum = max(1,round(mindist/interpIntervalList(round(xyz1(2)))-1));
-            
-            if dnum == 1
-                xyz3 = mean([xyz1_4;xyz2_4]);
-                predictorIm = ObtainPixelValuesAround2(xyz3,linearizedIm2);
-                temppred = classify(net2,predictorIm);
-                delcand{rowNo,1} = [delcand{rowNo,1}; xyz3];
-                [param2,tempCoord,d] = ObtainFeatureQuantities(xyz3,rowNo,selectedPixelList ...
-                    ,selectedIndexList,L,predictionScores2,leftEnd,outC);
+            if lostCellNo == 1
+                estimatedCoord = mean([leftCellCoord;rightCellCoord]);
+                predictorIm = ObtainPixelValuesAround2(estimatedCoord,linearizedIm2);
+                isGap = classify(net2,predictorIm); % Judge cell or gap
+                [~,nearestPeakPoint,nearestDist] = ObtainFeatureQuantities(estimatedCoord,rowNo,selectedPixelList ...
+                    ,selectedIndexList,L,predictionScores2,leftEnd,outC); % Search nearest peak point
 
-                if temppred == '1'
-                    o_del{rowNo,1} = [o_del{rowNo,1}; xyz3];
-                else
-                    if d < 3.5
-                        tempIdx = L(tempCoord(1),tempCoord(2),tempCoord(3));
-                        templabel = cellCandidData(selectedIndexList == tempIdx,2);
-                        tempidx2 = find(selectedIndexList == tempIdx);
-                        if templabel ~= rowNo
-                            cellCandidData(tempidx2,2) = rowNo;
-                            cellCandidData(tempidx2,3:5) = tempCoord;
+                if isGap == '-1' % if existence of cell in the gap indicated 
+                    if nearestDist < 3.5
+                        groupIndex = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                        candidateIndex = selectedIndexList == groupIndex;
+                        tempRowNo = cellCandidData(candidateIndex,2);
+                        if tempRowNo ~= rowNo
+                            cellCandidData(candidateIndex,2) = rowNo;
+                            cellCandidData(candidateIndex,3:5) = nearestPeakPoint;
                         end
                     else
-                        [Lidx,Ld] = knnsearch(xyzlistL,xyz3);
-                        if Ld < 3.5
-                            tempCoord = xyzlistL(Lidx,:);
-                            templabel = L(tempCoord(1),tempCoord(2),tempCoord(3));
-                            cellCandidData = [cellCandidData; double(templabel),rowNo,tempCoord,NaN];
-                            addlabel = [addlabel; [double(templabel) xyz3 predictionScores1(templabel,2)]];
+                        [peakPixelIndex,nearestDist] = knnsearch(peakPixelList,estimatedCoord); % Search nearest peak point (extended)
+                        if nearestDist < 3.5
+                            nearestPeakPoint = peakPixelList(peakPixelIndex,:);
+                            tempRowNo = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                            cellCandidData = [cellCandidData; double(tempRowNo),rowNo,nearestPeakPoint,NaN];
                         end
-                        addcand{rowNo,1} = [addcand{rowNo,1}; xyz3];
                     end
                 end
-            elseif dnum == 2
-                vector = (xyz2_4-xyz1_4);
+                
+            elseif lostCellNo == 2
+                vector = (rightCellCoord-leftCellCoord);
                 vector = vector/3;
-                xyz3 = [xyz1_4 + vector;xyz2_4 - vector];
-                param1_1 = ObtainPixelValuesAround2(xyz3(1,:),linearizedIm2);
-                param1_2 = ObtainPixelValuesAround2(xyz3(2,:),linearizedIm2);
-                temppred = classify(net2,cat(4,param1_1, param1_2));
-                
-                delcand{rowNo,1} = [delcand{rowNo,1}; xyz3];
-                
-                param2_1 = ObtainFeatureQuantities(xyz3(1,:),rowNo,selectedPixelList,selectedIndexList,L ...
-                    ,predictionScores2,leftEnd,outC);
-                param2_2 = ObtainFeatureQuantities(xyz3(2,:),rowNo,selectedPixelList,selectedIndexList,L ...
-                    ,predictionScores2,leftEnd,outC);
+                estimatedCoords = [leftCellCoord + vector;rightCellCoord - vector];
+                predictorIm1 = ObtainPixelValuesAround2(estimatedCoords(1,:),linearizedIm2);
+                predictorIm2 = ObtainPixelValuesAround2(estimatedCoords(2,:),linearizedIm2);
+                isGap = classify(net2,cat(4,predictorIm1, predictorIm2));
                 
                 for k = 1:2
-                    if temppred(k,1) == '1'
-                        o_del{rowNo,1} = [o_del{rowNo,1}; xyz3(k,:)];
-                    else
-                        [idx, d] = knnsearch(selectedPixelList,xyz3(k,:));
-                        if d < 3.5
-                            tempCoord = selectedPixelList(idx,:);
-                            tempIdx = L(tempCoord(1),tempCoord(2),tempCoord(3));
-                            tempidx2 = find(selectedIndexList == tempIdx);
-                            templabel = cellCandidData(tempidx2,2);
-                            if templabel ~= rowNo
-                                cellCandidData(tempidx2,2) = rowNo;
-                                cellCandidData(tempidx2,3:5) = tempCoord;
+                    if isGap(k,1) == '-1'
+                        [idx, nearestDist] = knnsearch(selectedPixelList,estimatedCoords(k,:));
+                        if nearestDist < 3.5
+                            nearestPeakPoint = selectedPixelList(idx,:);
+                            candidateIndex = selectedIndexList == groupIndex;
+                            groupIndex = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                            tempRowNo = cellCandidData(candidateIndex,2);
+                            if tempRowNo ~= rowNo
+                                cellCandidData(candidateIndex,2) = rowNo;
+                                cellCandidData(candidateIndex,3:5) = nearestPeakPoint;
                             end
                         else
-                            [Lidx,Ld] = knnsearch(xyzlistL,xyz3(k,:));
-                            if Ld < 3.5
-                                tempCoord = xyzlistL(Lidx,:);
-                                templabel = L(tempCoord(1),tempCoord(2),tempCoord(3));
-                                cellCandidData = [cellCandidData; double(templabel),rowNo,tempCoord, NaN];
-                                addlabel = [addlabel; [double(templabel) xyz3(k,:) ...
-                                    predictionScores1(templabel,2)]];
+                            [peakPixelIndex,nearestDist] = knnsearch(peakPixelList,estimatedCoords(k,:));
+                            if nearestDist < 3.5
+                                nearestPeakPoint = peakPixelList(peakPixelIndex,:);
+                                tempRowNo = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                                cellCandidData = [cellCandidData; double(tempRowNo),rowNo,nearestPeakPoint, NaN];
                             end
-                            addcand{rowNo,1} = [addcand{rowNo,1}; xyz3(k,:)];
                         end
                     end
                 end
-            else 
-                for kk = 1:100
-                    lastxyz = xyz1_3;
-
+                
+            else % Lost cell number > 2
+                for kk = 1:100                    
+                    % Estimate cell coordinates in the gap from left to right 
                     row1List = sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2);
                     row2List = sortrows(cellCandidData(cellCandidData(:,2)==2,3:5),2);
-                    row3List = sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2);
-                    
-                    [idx1] = knnsearch(row1List,lastxyz,'k',2);
-                    [idx2] = knnsearch(row2List,lastxyz,'k',2);
-                    [idx3] = knnsearch(row3List,lastxyz,'k',2);
+                    row3List = sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2);                    
+                    [idx1] = knnsearch(row1List,tempLeftCellCoord,'k',2);
+                    [idx2] = knnsearch(row2List,tempLeftCellCoord,'k',2);
+                    [idx3] = knnsearch(row3List,tempLeftCellCoord,'k',2);
                     vector1 = row1List(max(idx1),:)-row1List(min(idx1),:);
                     vector1 = vector1/norm(vector1);
                     vector2 = row2List(max(idx2),:)-row2List(min(idx2),:);
                     vector2 = vector2/norm(vector2);
                     vector3 = row3List(max(idx3),:)-row3List(min(idx3),:);
-                    vector3 = vector3/norm(vector3);
+                    vector3 = vector3/norm(vector3);                    
+                    vector4 = rightCellCoord - tempLeftCellCoord;
+                    vector4 = vector4/norm(vector4);                    
+                    mergedVector = mean([vector1;vector2;vector3])+vector4;
+                    mergedVector(3) = 0;
+                    mergedVector = mergedVector/norm(mergedVector); % Estimated direction of next cell                    
+                    nextCellCoord = tempLeftCellCoord + mergedVector*interpIntervalList(round(leftCellCoord(2)));
                     
-                    vector4 = xyz2_3 - lastxyz;
-                    vector4 = vector4/norm(vector4);
-                    
-                    vector = mean([vector1;vector2;vector3])+vector4;
-                    vector(3) = 0;
-                    vector = vector/norm(vector);
-                    
-                    nextxyz = lastxyz + vector*interpIntervalList(round(xyz1(2)));
-                    d1 = norm(xyz2_3-nextxyz);
-                    d2 = xyz2_3(2)-nextxyz(2);
-                    if d2 < interpIntervalList(round(xyz2(2)))/2
+                    % Break if distance to right side cell is too small
+                    distance1 = norm(rightCellCoord-nextCellCoord);
+                    distance2 = rightCellCoord(2)-nextCellCoord(2);
+                    if distance2 < interpIntervalList(round(rightCellCoord(2)))/2
                         break
-                    elseif d1 < interpIntervalList(round(xyz2(2)))
-                        nextxyz = mean([lastxyz; xyz2_3]);
+                    elseif distance1 < interpIntervalList(round(rightCellCoord(2)))
+                        nextCellCoord = mean([tempLeftCellCoord; rightCellCoord]);
                     end
                     
-                    rparam2 = ObtainPixelValuesAround2(nextxyz,linearizedIm2);
-                    temppred = classify(net2,rparam2);
+                    predictorIm = ObtainPixelValuesAround2(nextCellCoord,linearizedIm2);
+                    isGap = classify(net2,predictorIm);
                     
-                    [rparam,tempCoord,d] = ObtainFeatureQuantities(nextxyz,rowNo,selectedPixelList ...
-                        ,selectedIndexList,L,predictionScores2,leftEnd,outC);
+                    [~,nearestPeakPoint,nearestDist] = ObtainFeatureQuantities(nextCellCoord,rowNo,selectedPixelList ...
+                        ,selectedIndexList,L,predictionScores2,leftEnd,outC); % Search nearest peak point
                     
-                    delcand{rowNo,1} = [delcand{rowNo,1}; nextxyz];
-                    if temppred == '1'
-                        o_del{rowNo,1} = [o_del{rowNo,1}; nextxyz];
-                    else
-                        if d < 3.5
-                            tempIdx = L(tempCoord(1),tempCoord(2),tempCoord(3));
-                            templabel = cellCandidData(selectedIndexList == tempIdx,2);
-                            tempidx2 = find(selectedIndexList == tempIdx);
-                            if templabel ~= rowNo 
-                                if templabel == -1 || templabel == 4
-                                    cellCandidData(tempidx2,2) = rowNo;
-                                    cellCandidData(tempidx2,3:5) = tempCoord;
+                    if isGap == '-1'
+                        if nearestDist < 3.5
+                            groupIndex = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                            candidateIndex = selectedIndexList == groupIndex;
+                            tempRowNo = cellCandidData(candidateIndex,2);
+                            if tempRowNo ~= rowNo 
+                                if tempRowNo == -1 || tempRowNo == 4
+                                    cellCandidData(candidateIndex,2) = rowNo;
+                                    cellCandidData(candidateIndex,3:5) = nearestPeakPoint;
                                 elseif rowNo == 1 
-                                    tempCoord = lastxyz;
-                                    tempCoord(1) = tempCoord(1)-5;
+                                    nearestPeakPoint = tempLeftCellCoord;
+                                    nearestPeakPoint(1) = nearestPeakPoint(1)-5;
                                 elseif rowNo == 2 
-                                    cellCandidData(tempidx2,2) = rowNo;
-                                    cellCandidData(tempidx2,3:5) = tempCoord;
+                                    cellCandidData(candidateIndex,2) = rowNo;
+                                    cellCandidData(candidateIndex,3:5) = nearestPeakPoint;
                                 elseif rowNo == 3 
-                                    tempCoord = lastxyz; 
-                                    tempCoord(1) = tempCoord(1)+5;
+                                    nearestPeakPoint = tempLeftCellCoord; 
+                                    nearestPeakPoint(1) = nearestPeakPoint(1)+5;
                                 end
                             end
-                            nextxyz = tempCoord;
+                            nextCellCoord = nearestPeakPoint;
                         else
-                            [Lidx,Ld] = knnsearch(xyzlistL,nextxyz);
-                            if Ld < 3.5
-                                tempCoord = xyzlistL(Lidx,:);
-                                templabel = L(tempCoord(1),tempCoord(2),tempCoord(3));
-                                cellCandidData = [cellCandidData; double(templabel),rowNo,tempCoord,NaN];
-                                addlabel = [addlabel; [double(templabel) nextxyz ...
-                                    predictionScores1(templabel,2)]];
-                                nextxyz = tempCoord;
-                            end
-                            addcand{rowNo,1} = [addcand{rowNo,1}; nextxyz];                          
+                            [peakPixelIndex,nearestDist] = knnsearch(peakPixelList,nextCellCoord);
+                            if nearestDist < 3.5
+                                nearestPeakPoint = peakPixelList(peakPixelIndex,:);
+                                tempRowNo = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                                cellCandidData = [cellCandidData; double(tempRowNo),rowNo,nearestPeakPoint,NaN];
+                                nextCellCoord = nearestPeakPoint;
+                            end                        
                         end
                     end
-                    xyz1_3 = nextxyz;
+                    tempLeftCellCoord = nextCellCoord; % Prepare for next search
                 end
             end
             
@@ -510,84 +477,76 @@ for rowNo = 1:3
     end
 end
 
-%% Examine the end ot rows of estimated outer hair cells 
-tempadd = cell(3,1);
+%% Check basal end
+addCoordList = cell(3,1);
 for j = 1:200
-    row1List = sortrows([cellCandidData(cellCandidData(:,2)==1,3:5); tempadd{1,1}],2);
-    row2List = sortrows([cellCandidData(cellCandidData(:,2)==2,3:5); tempadd{2,1}],2);
-    row3List = sortrows([cellCandidData(cellCandidData(:,2)==3,3:5); tempadd{3,1}],2);
-    out_lasts = [row1List(end,:);row2List(end,:);row3List(end,:)];
-    [~,lineidx] = min(out_lasts(:,2));
-    lastxyz = out_lasts(lineidx,:);
+    row1List = sortrows([cellCandidData(cellCandidData(:,2)==1,3:5); addCoordList{1,1}],2);
+    row2List = sortrows([cellCandidData(cellCandidData(:,2)==2,3:5); addCoordList{2,1}],2);
+    row3List = sortrows([cellCandidData(cellCandidData(:,2)==3,3:5); addCoordList{3,1}],2);
+    basalEndList = [row1List(end,:);row2List(end,:);row3List(end,:)];
+    [~,currentRowNo] = min(basalEndList(:,2));
+    tempLeftCellCoord = basalEndList(currentRowNo,:); % Start point for search
 
-    [idx1] = knnsearch(row1List,lastxyz,'k',2);
-    [idx2] = knnsearch(row2List,lastxyz,'k',2);
-    [idx3] = knnsearch(row3List,lastxyz,'k',2);
+    [idx1] = knnsearch(row1List,tempLeftCellCoord,'k',2);
+    [idx2] = knnsearch(row2List,tempLeftCellCoord,'k',2);
+    [idx3] = knnsearch(row3List,tempLeftCellCoord,'k',2);
     vector1 = row1List(max(idx1),:)-row1List(min(idx1),:);
     vector1 = vector1/norm(vector1);
     vector2 = row2List(max(idx2),:)-row2List(min(idx2),:);
     vector2 = vector2/norm(vector2);
     vector3 = row3List(max(idx3),:)-row3List(min(idx3),:);
     vector3 = vector3/norm(vector3);
-    vector = mean([vector1;vector2;vector3;[0 1 0]]);
-    vector = vector/norm(vector);
+    mergedVector = mean([vector1;vector2;vector3;[0 1 0]]);
+    mergedVector = mergedVector/norm(mergedVector); % Estimated direction of next cell    
+    nextCellCoord = tempLeftCellCoord + mergedVector*7.8;
     
-    nextxyz = lastxyz + vector*7.8;
-
-    if nextxyz(2) > imSize(2)-10
+    % Break if the distance to image boundary is too small
+    if nextCellCoord(2) > imSize(2)-10
         break
     end
-    tempCoord = round(nextxyz);
-    tempint = linearizedIm2(tempCoord(1),tempCoord(2)+5,tempCoord(3));
-    if tempint==0
+    nearestPeakPoint = round(nextCellCoord);
+    pixelValue = linearizedIm2(nearestPeakPoint(1),nearestPeakPoint(2)+5,nearestPeakPoint(3));
+    if pixelValue==0
         break
     end
     
-    rparam2 = ObtainPixelValuesAround2(nextxyz,linearizedIm2);
-    temppred = classify(net2,rparam2);
+    predictorIm = ObtainPixelValuesAround2(nextCellCoord,linearizedIm2);
+    isGap = classify(net2,predictorIm);
     
-    [rparam,xyz4,d] = ObtainFeatureQuantities(nextxyz,lineidx,selectedPixelList,selectedIndexList,L ...
+    [~,nearestPeakPoint,nearestDist] = ObtainFeatureQuantities(nextCellCoord,currentRowNo,selectedPixelList,selectedIndexList,L ...
         ,predictionScores2,leftEnd,outC);
     
-    delcand{lineidx,1} = [delcand{lineidx,1}; nextxyz];
-    
-    if temppred ~= '1' && d < 3
-        nextxyz = xyz4;
-
-        tempIdx = L(xyz4(1),xyz4(2),xyz4(3));
-        templabel = cellCandidData(selectedIndexList == tempIdx,2);
-        tempidx2 = find(selectedIndexList == tempIdx);
-        
-        if templabel ~= lineidx
-            if templabel == -1 || templabel == 4
-                cellCandidData(tempidx2,2) = lineidx;
-                cellCandidData(tempidx2,3:5) = nextxyz;
-            elseif lineidx == 1 
-                nextxyz = lastxyz; 
-                nextxyz(1) = nextxyz(1)-5;
-                nextxyz(2) = nextxyz(2)+1;
-                tempadd{lineidx,1} = [tempadd{lineidx,1}; nextxyz];
-            elseif lineidx == 2 
-                cellCandidData(tempidx2,2) = lineidx;
-                cellCandidData(tempidx2,3:5) = nextxyz;
-            elseif lineidx == 3 
-                cellCandidData(tempidx2,2) = lineidx;
-                cellCandidData(tempidx2,3:5) = nextxyz;
-            end
-        end
-        
-    elseif temppred == '1' 
-        o_del{rowNo,1} = [o_del{rowNo,1}; nextxyz];
-        tempadd{lineidx,1} = [tempadd{lineidx,1}; nextxyz];
+    if isGap == '-1' && nearestDist < 3 % if there is peak point near the estimated coordinate
+        nextCellCoord = nearestPeakPoint;
+        groupIndex = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+        candidateIndex = selectedIndexList == groupIndex;
+        tempRowNo = cellCandidData(candidateIndex,2);   
+         
+        if tempRowNo == -1 || tempRowNo == 4
+            cellCandidData(candidateIndex,2) = currentRowNo;
+            cellCandidData(candidateIndex,3:5) = nextCellCoord;
+        elseif currentRowNo == 1 % Avoid crossing the other rows
+            nextCellCoord = tempLeftCellCoord;
+            nextCellCoord(1) = nextCellCoord(1)-5;
+            nextCellCoord(2) = nextCellCoord(2)+1;
+            addCoordList{currentRowNo,1} = [addCoordList{currentRowNo,1}; nextCellCoord];
+        elseif currentRowNo == 2
+            cellCandidData(candidateIndex,2) = currentRowNo;
+            cellCandidData(candidateIndex,3:5) = nextCellCoord;
+        elseif currentRowNo == 3
+            cellCandidData(candidateIndex,2) = currentRowNo;
+            cellCandidData(candidateIndex,3:5) = nextCellCoord;
+        end        
+    elseif isGap == '-1' % If there is no peak point nearby, just record the coordinate
+        addCoordList{currentRowNo,1} = [addCoordList{currentRowNo,1}; nextCellCoord];
     else
-        [Lidx,Ld] = knnsearch(xyzlistL,nextxyz);
-        if Ld < 3 
-            tempCoord = xyzlistL(Lidx,:);
-            templabel = L(tempCoord(1),tempCoord(2),tempCoord(3));
-            cellCandidData = [cellCandidData; double(templabel),lineidx,tempCoord,NaN];
-            addlabel = [addlabel; [double(templabel) tempCoord predictionScores1(templabel,2)]];
+        [peakPixelIndex,nearestDist] = knnsearch(peakPixelList,nextCellCoord);
+        if nearestDist < 3 
+            nearestPeakPoint = peakPixelList(peakPixelIndex,:);
+            tempRowNo = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+            cellCandidData = [cellCandidData; double(tempRowNo),currentRowNo,nearestPeakPoint,NaN];
         else
-            tempadd{lineidx,1} = [tempadd{lineidx,1}; nextxyz];
+            addCoordList{currentRowNo,1} = [addCoordList{currentRowNo,1}; nextCellCoord];
         end
     end
 end
@@ -596,53 +555,55 @@ row1List = sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2);
 row2List = sortrows(cellCandidData(cellCandidData(:,2)==2,3:5),2);
 row3List = sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2);
 outerHairCells = [row1List; row2List; row3List];
-out4 = sortrows(cellCandidData(cellCandidData(:,2)==4,3:5),2);
-delcandlist = [cat(1,delcand{:}); out4];
 
-add4 = [];
-for k = 1:20
-    if isempty(add4)
-        [~,d] = knnsearch(outerHairCells(:,1:2),out4(:,1:2));
+% Add cell candidates labelled with "4" (this label means "pending") for the final check
+pendingCoordList = sortrows(cellCandidData(cellCandidData(:,2)==4,3:5),2);
+pendingCoordList2 = [];
+for k = 1:20 % Remove candidates too close to existing points 
+    if isempty(pendingCoordList2)
+        [~,nearestDist] = knnsearch(outerHairCells(:,1:2),pendingCoordList(:,1:2));
     else
-        [~,d] = knnsearch([outerHairCells(:,1:2); add4(:,1:2)],out4(:,1:2));
+        [~,nearestDist] = knnsearch([outerHairCells(:,1:2); pendingCoordList2(:,1:2)],pendingCoordList(:,1:2));
     end
-    f = (d>6).*(d<10);
-    add4 = [add4; out4(f>0,:)];
+    f = (nearestDist>6).*(nearestDist<10);
+    pendingCoordList2 = [pendingCoordList2; pendingCoordList(f>0,:)];
 end
-f = abs(add4(:,3) - interpZList(round(add4(:,2)),3))>5;
-add4(f>0,:) = [];
+f = abs(pendingCoordList2(:,3) - interpZList(round(pendingCoordList2(:,2)),3))>5;
+pendingCoordList2(f>0,:) = []; % Remove candidates far from average z coordinate
 
-temp = [];
+% Add cell candidates at apical end for the final check 
+tempList = [];
 for k = 1:size(apicalCandidates,1)
     f = cellCandidData(:,1)==apicalCandidates(k,1);
     if cellCandidData(f>0,2)==-1 || cellCandidData(f>0,2)==4
-        [~,d] = knnsearch([outerHairCells(:,1:2); add4(:,1:2)],cellCandidData(find(f),3:4));
-        if d>5
-           temp = [temp; find(f)];
+        [~,nearestDist] = knnsearch([outerHairCells(:,1:2); pendingCoordList2(:,1:2)],cellCandidData(f>0,3:4));
+        if nearestDist>5
+           tempList = [tempList; find(f)];
         else
-            d;
+            nearestDist;
         end
     end
 end
+apicalCoordList = cellCandidData(tempList,3:5);
+f = abs(apicalCoordList(:,3) - mean(interpZList(round(apicalCoordList(:,2)),:),2))>5;
+apicalCoordList(f>0,:) = [];
+pendingCoordList2 = unique([pendingCoordList2;apicalCoordList],'rows');
 
-add5 = cellCandidData(temp,3:5);
-f = abs(add5(:,3) - mean(interpZList(round(add5(:,2)),:),2))>5;
-add5(f>0,:) = [];
-add4 = unique([add4;add5],'rows');
-
-tempparam = zeros(69,39,1,size(add4,1));
-for i = 1:size(add4,1)
-    tempparam(:,:,:,i) = ObtainPixelValuesAround2(add4(i,:),linearizedIm2);
+% Final check
+predictorImList = zeros(69,39,1,size(pendingCoordList2,1));
+for i = 1:size(pendingCoordList2,1)
+    predictorImList(:,:,:,i) = ObtainPixelValuesAround2(pendingCoordList2(i,:),linearizedIm2);
 end
-temppred = classify(net2,tempparam);
-add4(temppred=='1',:)=[];
+isGap = classify(net2,predictorImList);
+pendingCoordList2(isGap=='1',:)=[];
 
-outlist = [sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2); sortrows(cellCandidData(cellCandidData(:,2) ...
-    ==2,3:5),2); sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2); add4];
+outerHairCells = [sortrows(cellCandidData(cellCandidData(:,2)==1,3:5),2); sortrows(cellCandidData(cellCandidData(:,2) ...
+    ==2,3:5),2); sortrows(cellCandidData(cellCandidData(:,2)==3,3:5),2); pendingCoordList2];
 
-incim = DrawMarkedIm(linearizedIm2,round(outlist),1,1);
-incim = uint16(incim*1000);
-ImWrite3D(incim,[SubFolderPath '\outerHairCells.tif']);
-xlswrite([SubFolderPath '\outerHairCells.xlsx'],sortrows(SwitchColumn1_2(round(outlist))),1)
-save([SubFolderPath '\data.mat'],'outlist','-append')
+markedImOfOHC = DrawMarkedIm(linearizedIm2,round(outerHairCells),1,1);
+markedImOfOHC = uint16(markedImOfOHC*1000);
+ImWrite3D(markedImOfOHC,[SubFolderPath '\outerHairCells.tif']);
+xlswrite([SubFolderPath '\outerHairCells.xlsx'],sortrows(SwitchColumn1_2(round(outerHairCells))),1)
+save([SubFolderPath '\data.mat'],'outerHairCells','-append')
+
 disp('outer hair cells estimated!')
