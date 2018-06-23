@@ -248,3 +248,5 @@ totalLossRatio = sum(lossClusterSizes)/(conum+sum(lossClusterSizes));
 tempim = cat(3,standardizedIm,simplane2,zeros(size(standardizedIm)));
 imwrite(tempim(2:16,:,:),[SubFolderPath '\standardized_OuterHairCells.tif'])
 save([SubFolderPath '\analyzeResults.mat'],'lostCellNoList50','totalLossRatio','lossClusterSizes');
+
+disp('main4.m completed!')

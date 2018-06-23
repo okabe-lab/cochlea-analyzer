@@ -41,7 +41,7 @@ end
 % Convert to pixel position
 shiftsAtXYStage = round(shifts(:,1:2)*diag([1/PIXEL_WIDTH 1/PIXEL_WIDTH]));
 
-% Judge clockwise or counterClockWise by calculating cross product
+% Judge clockwise or counterclockwise by calculating cross product
 temp1 = [shiftsAtXYStage(1,:) 0]; temp2 = [shiftsAtXYStage(2,:) 0];
 temp3 = [shiftsAtXYStage(3,:) 0]; temp4 = [shiftsAtXYStage(4,:) 0];
 temp = cross(temp1,temp2) + cross(temp2,temp3) + cross(temp3,temp4);
