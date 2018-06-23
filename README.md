@@ -1,5 +1,5 @@
 
-Matlab scripts for analyzing image stacks of cleared cochlea
+Matlab scripts for analyzing images of cleared cochlea immunostained with anti-MYO7A antibody (hair cell marker).
 _____________________________________________________________________________________________
 
 This program needs:
