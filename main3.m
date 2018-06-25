@@ -16,7 +16,7 @@ load('machineLearningModels.mat','omdl1s','omdl2','net1','net2');
 
 %% First selection of candidate locations of outer hair cells
 Mdl = omdl1s{1,1}; % Remove noise
-[predictor1,~,predictionScores1,S, L, outC] = PredictOuterHairCells(linearizedIm2,innerCells2,Mdl);
+[predictor1,~,predictionScores1,peakGroupStats, labeledIm, correlationMatrix] = PredictOuterHairCells(linearizedIm2,innerCells2,Mdl);
 disp('Cell candidates obtained...')
 
 imSize = size(linearizedIm2);
@@ -95,7 +95,7 @@ predictor2 = [subPredict1 subPredict2 subPredict3 subPredict4];
 % Obtain coordinates of cell candidates
 cellCandidCoord = predictor2(:,5:7);
 for j = 1:size(selectedIndexList)
-    temp = SwitchColumn1_2(S(selectedIndexList(j)).PixelList);
+    temp = SwitchColumn1_2(peakGroupStats(selectedIndexList(j)).PixelList);
     [idx,~] = knnsearch(temp,cellCandidCoord(j,:)); % Search nearest pixel
     cellCandidCoord(j,:) = temp(idx,:);
 end
@@ -117,7 +117,7 @@ end
 Mdl = omdl2;
 [binaryPredictions1,predictionScores2] = predict(Mdl,predictor2);
 rowPredictions = double(classify(net1,predictorImList));     
-selectedPixelList = SwitchColumn1_2(cat(1,S(selectedIndexList).PixelList));
+selectedPixelList = SwitchColumn1_2(cat(1,peakGroupStats(selectedIndexList).PixelList));
 imSize = size(linearizedIm2);
 rowPredictions(binaryPredictions1==-1)=-1;
 cellCandidData = [selectedIndexList rowPredictions cellCandidCoord predictionScores2(:,2)];
@@ -210,12 +210,12 @@ for rowNo = 1:3
             
             if ~isempty(recoverCandidIndList)
                 idxList = cellCandidData(recoverCandidIndList,1);
-                candidPixelList = SwitchColumn1_2(cat(1,S(idxList).PixelList));
+                candidPixelList = SwitchColumn1_2(cat(1,peakGroupStats(idxList).PixelList));
                 [idxs3,nearestDist] = knnsearch(candidPixelList,gapCoords);
                 candidPixelList2 = candidPixelList(idxs3(nearestDist<3,:),:);
                 if ~isempty(candidPixelList2)
                     linearIndice = sub2ind(imSize,candidPixelList2(:,1),candidPixelList2(:,2),candidPixelList2(:,3));
-                    groupNo1 = L(linearIndice);
+                    groupNo1 = labeledIm(linearIndice);
                     groupNo2 = unique(groupNo1);
                     for kk = size(groupNo2,1)
                         cellCandidData(cellCandidData(:,1) == groupNo2(kk),2) = rowNo;
@@ -286,7 +286,7 @@ for j = 1:size(cellCandidData,1)
             tempRowLabel = 3;
         end
         tempy = cellCandidData(j,4);
-        tempList = SwitchColumn1_2(cat(1,S(cellCandidData(j,1)).PixelList));
+        tempList = SwitchColumn1_2(cat(1,peakGroupStats(cellCandidData(j,1)).PixelList));
         idx =  knnsearch(tempList(:,3),interpZList(round(tempy),tempRowLabel));
         cellCandidData(j,3:5) = tempList(idx,:);
     end
@@ -329,7 +329,7 @@ f2 = cellCandidData(:,6)>0.8;
 cellCandidData(f1.*f2>0,2) = 4;
 
 %% Examine gaps within row of estimated outer hair cells 
-peakPixelList = GetCoordOfPositivePixels(L>0);
+peakPixelList = GetCoordOfPositivePixels(labeledIm>0);
 
 for rowNo = 1:3
     rowCoordList = sortrows(cellCandidData(cellCandidData(:,2)==rowNo,3:5),2);
@@ -349,11 +349,11 @@ for rowNo = 1:3
                 predictorIm = ObtainPixelValuesAround2(estimatedCoord,linearizedIm2);
                 isGap = classify(net2,predictorIm); % Judge cell or gap
                 [~,nearestPeakPoint,nearestDist] = ObtainFeatureQuantities(estimatedCoord,rowNo,selectedPixelList ...
-                    ,selectedIndexList,L,predictionScores2,leftEnd,outC); % Search nearest peak point
+                    ,selectedIndexList,labeledIm,predictionScores2,leftEnd,correlationMatrix); % Search nearest peak point
 
                 if isGap == '-1' % if existence of cell in the gap indicated 
                     if nearestDist < 3.5
-                        groupIndex = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                        groupIndex = labeledIm(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
                         candidateIndex = selectedIndexList == groupIndex;
                         tempRowNo = cellCandidData(candidateIndex,2);
                         if tempRowNo ~= rowNo
@@ -364,7 +364,7 @@ for rowNo = 1:3
                         [peakPixelIndex,nearestDist] = knnsearch(peakPixelList,estimatedCoord); % Search nearest peak point (extended)
                         if nearestDist < 3.5
                             nearestPeakPoint = peakPixelList(peakPixelIndex,:);
-                            tempRowNo = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                            tempRowNo = labeledIm(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
                             cellCandidData = [cellCandidData; double(tempRowNo),rowNo,nearestPeakPoint,NaN];
                         end
                     end
@@ -384,7 +384,7 @@ for rowNo = 1:3
                         if nearestDist < 3.5
                             nearestPeakPoint = selectedPixelList(idx,:);
                             candidateIndex = selectedIndexList == groupIndex;
-                            groupIndex = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                            groupIndex = labeledIm(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
                             tempRowNo = cellCandidData(candidateIndex,2);
                             if tempRowNo ~= rowNo
                                 cellCandidData(candidateIndex,2) = rowNo;
@@ -394,7 +394,7 @@ for rowNo = 1:3
                             [peakPixelIndex,nearestDist] = knnsearch(peakPixelList,estimatedCoords(k,:));
                             if nearestDist < 3.5
                                 nearestPeakPoint = peakPixelList(peakPixelIndex,:);
-                                tempRowNo = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                                tempRowNo = labeledIm(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
                                 cellCandidData = [cellCandidData; double(tempRowNo),rowNo,nearestPeakPoint, NaN];
                             end
                         end
@@ -436,11 +436,11 @@ for rowNo = 1:3
                     isGap = classify(net2,predictorIm);
                     
                     [~,nearestPeakPoint,nearestDist] = ObtainFeatureQuantities(nextCellCoord,rowNo,selectedPixelList ...
-                        ,selectedIndexList,L,predictionScores2,leftEnd,outC); % Search nearest peak point
+                        ,selectedIndexList,labeledIm,predictionScores2,leftEnd,correlationMatrix); % Search nearest peak point
                     
                     if isGap == '-1'
                         if nearestDist < 3.5
-                            groupIndex = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                            groupIndex = labeledIm(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
                             candidateIndex = selectedIndexList == groupIndex;
                             tempRowNo = cellCandidData(candidateIndex,2);
                             if tempRowNo ~= rowNo 
@@ -463,7 +463,7 @@ for rowNo = 1:3
                             [peakPixelIndex,nearestDist] = knnsearch(peakPixelList,nextCellCoord);
                             if nearestDist < 3.5
                                 nearestPeakPoint = peakPixelList(peakPixelIndex,:);
-                                tempRowNo = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+                                tempRowNo = labeledIm(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
                                 cellCandidData = [cellCandidData; double(tempRowNo),rowNo,nearestPeakPoint,NaN];
                                 nextCellCoord = nearestPeakPoint;
                             end                        
@@ -513,12 +513,12 @@ for j = 1:200
     predictorIm = ObtainPixelValuesAround2(nextCellCoord,linearizedIm2);
     isGap = classify(net2,predictorIm);
     
-    [~,nearestPeakPoint,nearestDist] = ObtainFeatureQuantities(nextCellCoord,currentRowNo,selectedPixelList,selectedIndexList,L ...
-        ,predictionScores2,leftEnd,outC);
+    [~,nearestPeakPoint,nearestDist] = ObtainFeatureQuantities(nextCellCoord,currentRowNo,selectedPixelList,selectedIndexList,labeledIm ...
+        ,predictionScores2,leftEnd,correlationMatrix);
     
     if isGap == '-1' && nearestDist < 3 % if there is peak point near the estimated coordinate
         nextCellCoord = nearestPeakPoint;
-        groupIndex = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+        groupIndex = labeledIm(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
         candidateIndex = selectedIndexList == groupIndex;
         tempRowNo = cellCandidData(candidateIndex,2);   
          
@@ -543,7 +543,7 @@ for j = 1:200
         [peakPixelIndex,nearestDist] = knnsearch(peakPixelList,nextCellCoord);
         if nearestDist < 3 
             nearestPeakPoint = peakPixelList(peakPixelIndex,:);
-            tempRowNo = L(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
+            tempRowNo = labeledIm(nearestPeakPoint(1),nearestPeakPoint(2),nearestPeakPoint(3));
             cellCandidData = [cellCandidData; double(tempRowNo),currentRowNo,nearestPeakPoint,NaN];
         else
             addCoordList{currentRowNo,1} = [addCoordList{currentRowNo,1}; nextCellCoord];
